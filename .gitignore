@@ -6,3 +6,5 @@ vagrant/firewall.rsc
 scenarios/*.pdf
 scenarios/*.rsc
 scenarios/*.vagrant
+.kiro/*
+.venv/
