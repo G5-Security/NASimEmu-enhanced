@@ -411,67 +411,53 @@ class ScenarioLoaderV2:
         def is_for_os(x, os): # x is service or process
             if x is None:
                 return True
+
             x_os = x.split("_")[1]
             return (x_os == os) or (x_os == 'any')
 
         if self.yaml_dict[u.HOST_CONFIGS] == '_random':
             self.host_configs = {}
 
-            # optional probability maps
-            service_prob_map = self.yaml_dict.get('service_probabilities', {})
-            process_prob_map = self.yaml_dict.get('process_probabilities', {})
-            default_service_prob = 0.0
-            default_process_prob = 0.0
-
             for s_id, subnet_size in enumerate(self.subnets):
                 if s_id == 0: # skip internet
                     continue
 
+                # filter services and processes for the os
                 for host_id in range(subnet_size):
                     os = random.choice(self.os)
                     all_services = [x for x in self.services if is_for_os(x, os)]
-                    sensitive_services = [x for x in self.yaml_dict.get('sensitive_services', []) if x in all_services]
+                    sensitive_services = [x for x in self.yaml_dict['sensitive_services'] if x in all_services] # filter sensitive services for this os
+                    non_sensitive_services = [x for x in all_services if x not in sensitive_services]
+
                     processes = [x for x in self.processes if is_for_os(x, os)]
 
-                    # If probability maps provided, sample presence per item; otherwise fall back to skewed counts
-                    if service_prob_map or process_prob_map:
-                        selected_services = [srv for srv in all_services if random.random() < service_prob_map.get(srv, default_service_prob)]
-                        selected_processes = [proc for proc in processes if random.random() < process_prob_map.get(proc, default_process_prob)]
+                    # uniform distribution
+                    # no_services = random.randint(1, len(non_sensitive_services))
+                    # no_processes = random.randint(1, len(processes))
 
-                        # Ensure at least one service per host
-                        if len(selected_services) == 0 and len(all_services) > 0:
-                            # Prefer high-probability service for determinism
-                            best_srv = max(all_services, key=lambda s: service_prob_map.get(s, default_service_prob))
-                            selected_services = [best_srv]
+                    # skewed distribution: each element has a weight p^n
+                    def skew_dist(n, p=0.5):
+                        vals = np.arange(n) + 1
+                        dist = p ** vals
+                        return random.choices(vals, weights=dist, k=1)[0]
 
-                        # Ensure sensitive hosts have at least one sensitive service if available
-                        if (s_id, host_id) in self.sensitive_hosts and len(sensitive_services) > 0 and all(s not in sensitive_services for s in selected_services):
-                            best_sensitive = max(sensitive_services, key=lambda s: service_prob_map.get(s, default_service_prob))
-                            if best_sensitive not in selected_services:
-                                selected_services.append(best_sensitive)
-                    else:
-                        # legacy skewed count sampling
-                        def skew_dist(n, p=0.5):
-                            vals = np.arange(n) + 1
-                            dist = p ** vals
-                            return random.choices(vals, weights=dist, k=1)[0]
+                    no_services = skew_dist(len(non_sensitive_services))
+                    no_processes = skew_dist(len(processes))
 
-                        non_sensitive_services = [x for x in all_services if x not in sensitive_services]
-                        no_services = skew_dist(len(non_sensitive_services)) if len(non_sensitive_services) > 0 else 0
-                        no_processes = skew_dist(len(processes)) if len(processes) > 0 else 0
-                        selected_services = random.sample(non_sensitive_services, no_services) if no_services > 0 else []
-                        selected_processes = random.sample(processes, no_processes) if no_processes > 0 else []
-
-                        # if this host is sensitive, add at least one sensitive service
-                        if (s_id, host_id) in self.sensitive_hosts and len(sensitive_services) > 0:
-                            service_to_add = random.choice(sensitive_services)
-                            if service_to_add not in selected_services:
-                                selected_services.append(service_to_add)
-
-                    # finalize host config
                     host_config = {'os': os,
-                        'services': selected_services,
-                        'processes': selected_processes}
+                                   'services': random.sample(non_sensitive_services, no_services),
+                                   'processes': random.sample(processes, no_processes)}
+
+                    # if this host is sensitive, add at least one sensitive service
+                    if (s_id, host_id) in self.sensitive_hosts:
+                        assert len(sensitive_services) > 0
+
+                        service_to_add = random.choice(sensitive_services)
+                        host_config['services'].append(service_to_add)
+
+                    elif random.random() < 0.1: # 10% chance of a sensitive service being on a non-sensitive host
+                        service_to_add = random.choice(sensitive_services)
+                        host_config['services'].append(service_to_add)
 
                     self.host_configs[(s_id, host_id)] = host_config
 

@@ -1,0 +1,81 @@
+NASimEmu Scenario Guide
+=======================
+
+1) How scenarios are loaded
+---------------------------
+- NASimEmu loads a scenario at episode reset, not at every step.
+- In `NASimEmuEnv.reset()`, `_generate_env()` selects a scenario:
+  - If the scenario name ends with `.yaml`/`.v2.yaml`, it calls the YAML loader (v2 uses `ScenarioLoaderV2`).
+  - If the name matches a generator benchmark, it samples a generated scenario.
+- After loading, the environment is constructed (`NASimEnv` or `EmulatedNASimEnv`) and the episode starts.
+- Steps within an episode do not reload the scenario; a new load happens only on the next `reset()` (new episode).
+
+Key effects of v2 YAML at load time
+- Supports randomness on each episode load:
+  - Variable subnet sizes via ranges (e.g., `1-4`).
+  - Sensitive host assignment via per-subnet probabilities.
+  - `host_configurations: _random` generates OS/services/processes per host.
+- All of the above are sampled per episode at reset.
+
+
+2) How to introduce dynamicity
+------------------------------
+Two complementary approaches depending on whether you want variation per episode or per step.
+
+A) Per-episode sampling (on each reset)
+- Extend v2 YAML to include per-item probabilities and sample once per episode:
+  - `process_probabilities`: map each process to a Bernoulli probability.
+  - `service_probabilities`: map each service to a Bernoulli probability (optional, same idea).
+- Change the `_parse_host_configs` path when `host_configurations: _random` is used to sample presence using these probabilities instead of fixed counts.
+- Example YAML keys:
+  - `process_probabilities: { httpd_linux: 0.7, sshd_linux: 0.2 }`
+  - `service_probabilities: { 8080_linux_tomcat_mgr: 0.4 }`
+- Outcome: each episode re-samples which services/processes are present per host (e.g., a process is “on” with probability 0.7 per episode).
+
+B) Mid-episode dynamics (on each step)
+- Add an optional `dynamics` section to v2 YAML with per-step on/off probabilities:
+  - `dynamics.services.<service>: { p_on, p_off }`
+  - `dynamics.processes.<process>: { p_on, p_off }`
+- Implement a small hook in the simulator:
+  - Parse and store `scenario.dynamics` from YAML.
+  - In `NASimEnv.generative_step`, call a new `network.apply_dynamics(next_state, scenario.dynamics)` before computing the observation.
+  - `apply_dynamics` flips service/process bits on each host using the configured per-step probabilities.
+- Outcome: services/processes can start/stop during an episode according to configured probabilities.
+
+Notes for emulation mode
+- The emulation path reads live system state during scans (Metasploit). If you change services on the VMs during an episode, the next scan will reflect it. To recognize new ports/services, extend the port→service mapping used in the emulation scan logic.
+
+
+3) Additional services and processes to add
+-------------------------------------------
+Use v2 naming for services: `port_os_name` (e.g., `445_windows_smb`) so `_random` sampling can filter by OS.
+
+Candidate vulnerable/interesting services (remote):
+- Linux:
+  - 22_linux_ssh, 23_linux_telnet, 21_linux_vsftpd, 25_linux_smtp_exim
+  - 389_linux_ldap, 2049_linux_nfs, 445_linux_samba
+  - 5432_linux_postgres, 27017_linux_mongodb, 6379_linux_redis, 11211_linux_memcached
+  - 5601_linux_kibana, 3000_linux_grafana
+  - 8080_linux_tomcat_mgr, 8081_linux_jenkins, 8161_linux_activemq
+  - 5900_linux_vnc, 69_linux_tftp, 53_linux_dns_bind
+- Windows:
+  - 445_windows_smb, 3389_windows_rdp, 5985_windows_winrm, 135_windows_msrpc
+  - 88_windows_kerberos, 389_windows_ldap_ad, 1433_windows_mssql
+  - 80_windows_iis
+- Web apps (80/443):
+  - 80_linux_joomla, 80_linux_moodle, 80_linux_mediawiki, 80_linux_phpmyadmin
+
+Privilege-escalation processes/tokens (used by `privilege_escalation`):
+- Linux: polkit_pkexec, sudo_misconfig, suid_bin, cron_root, docker_sock, kernel_dirty_pipe
+- Windows: spooler, unquoted_service_path, weak_service_perms, se_impersonate, uac_bypass, dll_hijack, vuln_driver
+
+Wiring examples
+- Services + exploits:
+  - Add to `services` then define matching `exploits` entries with `service`, `os`, `prob`, `cost`, `access`.
+- Processes + privesc:
+  - Add to `processes` then define `privilege_escalation` entries with `process`, `os`, `prob`, `cost`, `access`.
+- If relevant, add to `sensitive_services` so they appear on sensitive hosts more often.
+
+Scaling considerations
+- Increasing the number of subnets/hosts increases state and action enumeration cost; keep `address_space_bounds` tight.
+- Keep the number of distinct services/processes reasonable to control per-host vector size. 
