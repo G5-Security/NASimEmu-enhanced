@@ -32,16 +32,16 @@ subnet_labels:
 sensitive_hosts:
   1: 0.0  # DMZ
   2: 0.0  # user
-  3: 0.4  # service
-  4: 1.0  # db
-  5: 0.3  # dev
-  6: 0.3  # app
-  7: 0.4  # app2
-  8: 0.5  # app3
-  9: 0.4  # web
-  10: 0.3 # office
-  11: 0.6 # research
-  12: 0.7 # backups
+  3: 0.2  # service
+  4: 0.0  # db
+  5: 0.0  # dev
+  6: 0.1  # app
+  7: 0.0  # app2
+  8: 0.3  # app3
+  9: 0.8  # web
+  10: 0.0 # office
+  11: 0.9 # research
+  12: 1.0 # backups
 
 os:
   - linux
@@ -82,9 +82,9 @@ services:
   - 80_windows_iis
 
 sensitive_services:
-  - 3306_any_mysql
-  - 5432_linux_postgres
-  - 1433_windows_mssql
+  - 22_linux_ssh
+  - 445_windows_smb
+  - 389_linux_ldap
 
 processes:
   - p_linux_polkit_pkexec
@@ -137,68 +137,68 @@ service_probabilities:
   80_windows_iis: 0.1
 
 process_probabilities:
-  p_linux_polkit_pkexec: 0.8
-  p_linux_sudo_misconfig: 0.7
-  p_linux_suid_bin: 0.2
-  p_linux_cron_root: 0.25
-  p_linux_docker_sock: 0.15
+  p_linux_polkit_pkexec: 0.2
+  p_linux_sudo_misconfig: 0.15
+  p_linux_suid_bin: 0.1
+  p_linux_cron_root: 0.15
+  p_linux_docker_sock: 0.1
   p_linux_kernel_dirty_pipe: 0.1
-  p_windows_spooler: 0.8
-  p_windows_unquoted_service_path: 0.7
-  p_windows_weak_service_perms: 0.2
-  p_windows_se_impersonate: 0.15
-  p_windows_uac_bypass: 0.15
-  p_windows_dll_hijack: 0.1
-  p_windows_vuln_driver: 0.1
+  p_windows_spooler: 0.9
+  p_windows_unquoted_service_path: 0.8
+  p_windows_weak_service_perms: 0.5
+  p_windows_se_impersonate: 0.4
+  p_windows_uac_bypass: 0.3
+  p_windows_dll_hijack: 0.2
+  p_windows_vuln_driver: 0.2
 
 exploits:
   e_vsftpd:
     service: 21_linux_vsftpd
     os: linux
-    prob: 0.9
-    cost: 1
+    prob: 0.6
+    cost: 2
     access: user
   e_tomcat_mgr:
     service: 8080_linux_tomcat_mgr
     os: linux
-    prob: 0.8
-    cost: 2
+    prob: 0.5
+    cost: 3
     access: user
   e_jenkins:
     service: 8081_linux_jenkins
     os: linux
-    prob: 0.7
-    cost: 2
+    prob: 0.4
+    cost: 3
     access: user
   e_smb_win:
     service: 445_windows_smb
     os: windows
-    prob: 0.8
-    cost: 2
+    prob: 0.5
+    cost: 3
     access: user
   e_rdp:
     service: 3389_windows_rdp
     os: windows
-    prob: 0.6
-    cost: 2
+    prob: 0.4
+    cost: 3
     access: user
   e_mysql:
     service: 3306_any_mysql
     os: none
-    prob: 1.0
-    cost: 1
-    access: root
+    prob: 0.7
+    cost: 3
+    access: user
   e_mssql:
     service: 1433_windows_mssql
     os: windows
-    prob: 0.8
-    cost: 2
+    prob: 0.5
+    cost: 3
     access: user
   e_postgres:
     service: 5432_linux_postgres
     os: linux
-    prob: 0.85
-    cost: 2
+    prob: 0.6
+    cost: 3
     access: user
 
 privilege_escalation:
@@ -239,10 +239,10 @@ privilege_escalation:
     cost: 1
     access: root
 
-service_scan_cost: 1
+service_scan_cost: 2
 os_scan_cost: 1
-subnet_scan_cost: 1
-process_scan_cost: 1
+subnet_scan_cost: 3
+process_scan_cost: 2
 
 host_configurations: _random
 firewall: _subnets 
