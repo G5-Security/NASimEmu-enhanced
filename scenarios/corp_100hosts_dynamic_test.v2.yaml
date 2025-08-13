@@ -2,19 +2,19 @@
 
 subnets: [6-8, 6-8, 6-8, 6-8, 6-8, 6-8, 6-8, 6-8, 6-8, 6-8, 6-8, 6-8]
 address_space_bounds: (13, 10)
-topology: [[ 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-           [ 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+topology: [[ 1, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1],
+           [ 1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0],
            [ 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
            [ 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0],
-           [  0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0],
-           [ 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0],
-           [ 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0],
+           [ 0, 1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0],
+           [ 0, 0, 0, 0, 1, 1, 1, 0, 1, 0, 0, 0, 0],
+           [ 1, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0],
            [ 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0],
-           [ 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0],
-           [ 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0],
+           [ 0, 0, 0, 0, 0, 1, 0, 1, 1, 1, 0, 0, 0],
+           [ 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 1],
            [ 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0],
            [ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1],
-           [ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1]]
+           [ 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1]]
 subnet_labels:
   1: DMZ
   2: user
@@ -30,18 +30,18 @@ subnet_labels:
   12: backups
 
 sensitive_hosts:
-  1: 0.0
-  2: 0.0
-  3: 0.6
-  4: 1.0
-  5: 0.2
-  6: 0.3
-  7: 0.3
-  8: 0.4
-  9: 0.5
-  10: 0.2
-  11: 0.5
-  12: 0.8
+  1: 0.0  # DMZ
+  2: 0.0  # user
+  3: 0.4  # service
+  4: 1.0  # db
+  5: 0.3  # dev
+  6: 0.3  # app
+  7: 0.4  # app2
+  8: 0.5  # app3
+  9: 0.4  # web
+  10: 0.3 # office
+  11: 0.6 # research
+  12: 0.7 # backups
 
 os:
   - linux
@@ -137,14 +137,14 @@ service_probabilities:
   80_windows_iis: 0.1
 
 process_probabilities:
-  p_linux_polkit_pkexec: 0.3
-  p_linux_sudo_misconfig: 0.25
+  p_linux_polkit_pkexec: 0.8
+  p_linux_sudo_misconfig: 0.7
   p_linux_suid_bin: 0.2
   p_linux_cron_root: 0.25
   p_linux_docker_sock: 0.15
   p_linux_kernel_dirty_pipe: 0.1
-  p_windows_spooler: 0.35
-  p_windows_unquoted_service_path: 0.25
+  p_windows_spooler: 0.8
+  p_windows_unquoted_service_path: 0.7
   p_windows_weak_service_perms: 0.2
   p_windows_se_impersonate: 0.15
   p_windows_uac_bypass: 0.15
@@ -185,9 +185,9 @@ exploits:
   e_mysql:
     service: 3306_any_mysql
     os: none
-    prob: 0.9
+    prob: 1.0
     cost: 1
-    access: user
+    access: root
   e_mssql:
     service: 1433_windows_mssql
     os: windows
@@ -208,22 +208,34 @@ privilege_escalation:
     prob: 0.8
     cost: 1
     access: root
+  pe_polkit_any:
+    process: p_linux_polkit_pkexec
+    os: none
+    prob: 0.7
+    cost: 1
+    access: root
   pe_sudo:
     process: p_linux_sudo_misconfig
     os: linux
+    prob: 0.7
+    cost: 1
+    access: root
+  pe_sudo_any:
+    process: p_linux_sudo_misconfig
+    os: none
     prob: 0.6
     cost: 1
     access: root
   pe_spooler:
     process: p_windows_spooler
     os: windows
-    prob: 0.7
+    prob: 0.8
     cost: 1
     access: root
   pe_unquoted:
     process: p_windows_unquoted_service_path
     os: windows
-    prob: 0.5
+    prob: 0.7
     cost: 1
     access: root
 

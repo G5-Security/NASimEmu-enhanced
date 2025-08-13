@@ -123,6 +123,25 @@ python main.py ../scenarios/uni.v2.yaml \
   -augment_with_action
 ```
 
+#### Large Dynamic Scenario
+
+```bash
+python main.py ../scenarios/corp_100hosts_dynamic.v2.yaml \
+  --test_scenario ../scenarios/corp_100hosts_dynamic_test.v2.yaml \
+  -device cpu \
+  -cpus 8 \
+  -epoch 100 \
+  -max_epochs 200 \
+  --no_debug \
+  -net_class NASimNetGNN_MAct \
+  -force_continue_epochs 150 \
+  -use_a_t \
+  -episode_step_limit 400 \
+  -observation_format graph_v2 \
+  -mp_iterations 2 \
+  -augment_with_action
+  ```
+
 #### **Resume GNN Training**
 
 ```bash
@@ -794,6 +813,7 @@ python test_task6_comprehensive.py
    ```
 
 3. **🧠 Debug**:
+
    ```bash
    python main.py ../scenarios/uni.v2.yaml --debug -load_model wandb/latest-run/files/model.pt -net_class NASimNetMLP -use_a_t -episode_step_limit 100 -augment_with_action
    ```
