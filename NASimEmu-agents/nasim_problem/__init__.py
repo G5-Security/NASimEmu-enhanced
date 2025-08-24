@@ -39,6 +39,7 @@ class NASimRRL():
 				'auto_topology': getattr(config, 'auto_topology', None),
 				'auto_sensitive_policy': getattr(config, 'auto_sensitive_policy', None),
 				'auto_seed_base': getattr(config, 'auto_seed_base', None),
+				'auto_sensitive_jitter': getattr(config, 'auto_sensitive_jitter', 0.0),
 			}
 		)
 

@@ -107,7 +107,8 @@ class NASimDebug():
                 auto_subnet_count=getattr(config, 'auto_subnet_count', None),
                 auto_topology=getattr(config, 'auto_topology', None),
                 auto_sensitive_policy=getattr(config, 'auto_sensitive_policy', None),
-                auto_seed_base=getattr(config, 'auto_seed_base', None)
+                auto_seed_base=getattr(config, 'auto_seed_base', None),
+                auto_sensitive_jitter=getattr(config, 'auto_sensitive_jitter', 0.0)
             )
 
         test_env = SubprocVecEnv([lambda: make_one() for i in range(config.eval_batch)], in_series=(config.eval_batch // config.cpus), context='fork')
