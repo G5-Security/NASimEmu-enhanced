@@ -12,6 +12,7 @@ import traceback
 import nasimemu.nasim.scenarios.utils as u
 from nasimemu.nasim.scenarios import Scenario
 from nasimemu.nasim.scenarios.loader_v2 import ScenarioLoaderV2
+from nasimemu.nasim.scenarios.host import Host
 
 class TerminalAction():
     pass
@@ -300,7 +301,7 @@ class NASimEmuEnv(gym.Env):
                     self._ensure_sensitive_service(srv_map, sensitive_services, services)
                 addr = (subnet, h)
                 value = float(sensitive_hosts.get(addr, 1.0))
-                host = u.make_host(address=addr, os=os_map, services=srv_map, processes=proc_map, value=value, discovery_value=1)
+                host = Host(address=addr, os=os_map.copy(), services=srv_map.copy(), processes=proc_map.copy(), firewall={}, value=value, discovery_value=1)
                 hosts[addr] = host
         # firewall
         fw = self._generate_firewall(subnets, hosts, services, T['exploits'], restrictiveness=5, topology=topology)
