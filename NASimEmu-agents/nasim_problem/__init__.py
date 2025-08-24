@@ -30,7 +30,16 @@ class NASimRRL():
 			entry_point='nasimemu.env:NASimEmuEnv',
 			kwargs={'scenario_name': config.scenario_name, 'step_limit': config.step_limit, 
 				'fully_obs': config.fully_obs, 'observation_format': config.observation_format,
-				'augment_with_action': config.augment_with_action, 'random_init': True, 'verbose': False}
+				'augment_with_action': config.augment_with_action, 'random_init': True, 'verbose': False,
+				# auto scenario kwargs (env must accept them; no behavior yet)
+				'auto_mode': getattr(config, 'auto_mode', 'off'),
+				'auto_template': getattr(config, 'auto_template', None),
+				'auto_host_range': getattr(config, 'auto_host_range', None),
+				'auto_subnet_count': getattr(config, 'auto_subnet_count', None),
+				'auto_topology': getattr(config, 'auto_topology', None),
+				'auto_sensitive_policy': getattr(config, 'auto_sensitive_policy', None),
+				'auto_seed_base': getattr(config, 'auto_seed_base', None),
+			}
 		)
 
 	@staticmethod
