@@ -39,6 +39,168 @@ cd NASimEmu-agents
 
 ## 🏋️ Training Commands
 
+#### Large Dynamic Scenario - All Architectures
+
+```bash
+# 1) MLP
+python main.py ../scenarios/corp_100hosts_dynamic.v2.yaml \
+  --test_scenario ../scenarios/corp_100hosts_dynamic_test.v2.yaml \
+  -device cpu -cpus 16 \
+  -epoch 100 -max_epochs 200 --no_debug \
+  -net_class NASimNetMLP \
+  -force_continue_epochs 150 -use_a_t \
+  -episode_step_limit 400 -augment_with_action
+
+# 2) MLP + LSTM
+python main.py ../scenarios/corp_100hosts_dynamic.v2.yaml \
+  --test_scenario ../scenarios/corp_100hosts_dynamic_test.v2.yaml \
+  -device cpu -cpus 16 \
+  -epoch 100 -max_epochs 200 --no_debug \
+  -net_class NASimNetMLP_LSTM \
+  -force_continue_epochs 150 -use_a_t \
+  -episode_step_limit 400 -augment_with_action
+
+# 3) GNN (Matrix Action)
+python main.py ../scenarios/corp_100hosts_dynamic.v2.yaml \
+  --test_scenario ../scenarios/corp_100hosts_dynamic_test.v2.yaml \
+  -device cpu -cpus 16 \
+  -epoch 100 -max_epochs 200 --no_debug \
+  -net_class NASimNetGNN_MAct \
+  -force_continue_epochs 150 -use_a_t \
+  -episode_step_limit 400 -observation_format graph_v2 \
+  -mp_iterations 2 -augment_with_action
+
+# 4) GNN + LSTM
+python main.py ../scenarios/corp_100hosts_dynamic.v2.yaml \
+  --test_scenario ../scenarios/corp_100hosts_dynamic_test.v2.yaml \
+  -device cpu -cpus 16 \
+  -epoch 100 -max_epochs 200 --no_debug \
+  -net_class NASimNetGNN_LSTM \
+  -force_continue_epochs 150 -use_a_t \
+  -episode_step_limit 400 -observation_format graph_v2 \
+  -mp_iterations 2 -augment_with_action
+
+# 5) Attention (Matrix Action)
+python main.py ../scenarios/corp_100hosts_dynamic.v2.yaml \
+  --test_scenario ../scenarios/corp_100hosts_dynamic_test.v2.yaml \
+  -device cpu -cpus 16 \
+  -epoch 100 -max_epochs 200 --no_debug \
+  -net_class NASimNetXAttMAct \
+  -force_continue_epochs 150 -use_a_t \
+  -episode_step_limit 400 -observation_format graph_v2 \
+  -mp_iterations 2 -augment_with_action
+
+# 6) Invariant (Matrix Action)
+python main.py ../scenarios/corp_100hosts_dynamic.v2.yaml \
+  --test_scenario ../scenarios/corp_100hosts_dynamic_test.v2.yaml \
+  -device cpu -cpus 16 \
+  -epoch 100 -max_epochs 200 --no_debug \
+  -net_class NASimNetInvMAct \
+  -force_continue_epochs 150 -use_a_t \
+  -episode_step_limit 400 -observation_format graph_v2 \
+  -mp_iterations 2 -augment_with_action
+
+# 7) Invariant + LSTM
+python main.py ../scenarios/corp_100hosts_dynamic.v2.yaml \
+  --test_scenario ../scenarios/corp_100hosts_dynamic_test.v2.yaml \
+  -device cpu -cpus 16 \
+  -epoch 100 -max_epochs 200 --no_debug \
+  -net_class NASimNetInvMActLSTM \
+  -force_continue_epochs 150 -use_a_t \
+  -episode_step_limit 400 -observation_format graph_v2 \
+  -mp_iterations 2 -augment_with_action
+
+# 8) Invariant + Trainable a_t
+python main.py ../scenarios/corp_100hosts_dynamic.v2.yaml \
+  --test_scenario ../scenarios/corp_100hosts_dynamic_test.v2.yaml \
+  -device cpu -cpus 16 \
+  -epoch 100 -max_epochs 200 --no_debug \
+  -net_class NASimNetInvMActTrainAT \
+  -force_continue_epochs 150 -use_a_t \
+  -episode_step_limit 400 -observation_format graph_v2 \
+  -mp_iterations 2 -augment_with_action
+```#### Large Dynamic Scenario - All Architectures
+
+```bash
+# 1) MLP
+python main.py ../scenarios/corp_100hosts_dynamic.v2.yaml \
+  --test_scenario ../scenarios/corp_100hosts_dynamic_test.v2.yaml \
+  -device cpu -cpus 16 \
+  -epoch 100 -max_epochs 200 --no_debug \
+  -net_class NASimNetMLP \
+  -force_continue_epochs 150 -use_a_t \
+  -episode_step_limit 400 -augment_with_action
+
+# 2) MLP + LSTM
+python main.py ../scenarios/corp_100hosts_dynamic.v2.yaml \
+  --test_scenario ../scenarios/corp_100hosts_dynamic_test.v2.yaml \
+  -device cpu -cpus 16 \
+  -epoch 100 -max_epochs 200 --no_debug \
+  -net_class NASimNetMLP_LSTM \
+  -force_continue_epochs 150 -use_a_t \
+  -episode_step_limit 400 -augment_with_action
+
+# 3) GNN (Matrix Action)
+python main.py ../scenarios/corp_100hosts_dynamic.v2.yaml \
+  --test_scenario ../scenarios/corp_100hosts_dynamic_test.v2.yaml \
+  -device cpu -cpus 16 \
+  -epoch 100 -max_epochs 200 --no_debug \
+  -net_class NASimNetGNN_MAct \
+  -force_continue_epochs 150 -use_a_t \
+  -episode_step_limit 400 -observation_format graph_v2 \
+  -mp_iterations 2 -augment_with_action
+
+# 4) GNN + LSTM
+python main.py ../scenarios/corp_100hosts_dynamic.v2.yaml \
+  --test_scenario ../scenarios/corp_100hosts_dynamic_test.v2.yaml \
+  -device cpu -cpus 16 \
+  -epoch 100 -max_epochs 200 --no_debug \
+  -net_class NASimNetGNN_LSTM \
+  -force_continue_epochs 150 -use_a_t \
+  -episode_step_limit 400 -observation_format graph_v2 \
+  -mp_iterations 2 -augment_with_action
+
+# 5) Attention (Matrix Action)
+python main.py ../scenarios/corp_100hosts_dynamic.v2.yaml \
+  --test_scenario ../scenarios/corp_100hosts_dynamic_test.v2.yaml \
+  -device cpu -cpus 16 \
+  -epoch 100 -max_epochs 200 --no_debug \
+  -net_class NASimNetXAttMAct \
+  -force_continue_epochs 150 -use_a_t \
+  -episode_step_limit 400 -observation_format graph_v2 \
+  -mp_iterations 2 -augment_with_action
+
+# 6) Invariant (Matrix Action)
+python main.py ../scenarios/corp_100hosts_dynamic.v2.yaml \
+  --test_scenario ../scenarios/corp_100hosts_dynamic_test.v2.yaml \
+  -device cpu -cpus 16 \
+  -epoch 100 -max_epochs 200 --no_debug \
+  -net_class NASimNetInvMAct \
+  -force_continue_epochs 150 -use_a_t \
+  -episode_step_limit 400 -observation_format graph_v2 \
+  -mp_iterations 2 -augment_with_action
+
+# 7) Invariant + LSTM
+python main.py ../scenarios/corp_100hosts_dynamic.v2.yaml \
+  --test_scenario ../scenarios/corp_100hosts_dynamic_test.v2.yaml \
+  -device cpu -cpus 16 \
+  -epoch 100 -max_epochs 200 --no_debug \
+  -net_class NASimNetInvMActLSTM \
+  -force_continue_epochs 150 -use_a_t \
+  -episode_step_limit 400 -observation_format graph_v2 \
+  -mp_iterations 2 -augment_with_action
+
+# 8) Invariant + Trainable a_t
+python main.py ../scenarios/corp_100hosts_dynamic.v2.yaml \
+  --test_scenario ../scenarios/corp_100hosts_dynamic_test.v2.yaml \
+  -device cpu -cpus 16 \
+  -epoch 100 -max_epochs 200 --no_debug \
+  -net_class NASimNetInvMActTrainAT \
+  -force_continue_epochs 150 -use_a_t \
+  -episode_step_limit 400 -observation_format graph_v2 \
+  -mp_iterations 2 -augment_with_action
+```
+
 ### MLP Model Training
 
 #### ✅ **Standard MLP Training** (Based on Pre-trained Model Configuration)
@@ -140,7 +302,7 @@ python main.py ../scenarios/corp_100hosts_dynamic.v2.yaml \
   -observation_format graph_v2 \
   -mp_iterations 2 \
   -augment_with_action
-  ```
+```
 
 #### **Resume GNN Training**
 

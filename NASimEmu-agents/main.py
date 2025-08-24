@@ -230,12 +230,28 @@ if __name__ == '__main__':
 
 			print(log)
 			wandb.log(log)
-
+			
 			# save model to wandb
 			model_file = os.path.join(wandb.run.dir, "model.pt")
 			net.save(model_file)
 			wandb.save(model_file)
 		
+
+			# if per-epoch auto mode, roll scenario for next epoch
+			try:
+				if getattr(config, 'auto_mode', 'off') == 'per_epoch':
+					# broadcast to all workers
+					env.env_method('set_roll_on_next_reset', True)
+			except Exception as _:
+				pass
+ 
+			# save best checkpoint if improved
+			try:
+				split = config.save_best_split
+				metric_name = config.save_best_metric
+				cur_val = eval_perf.get(split, {}).get(metric_name, None)
+			except Exception:
+				cur_val = None
 
 		# finish if max_epochs exceeded
 		if config.max_epochs and (step // config.log_rate >= config.max_epochs):

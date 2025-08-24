@@ -9,6 +9,9 @@ from nasimemu.nasim.envs import NASimEnv
 from nasimemu.nasim.envs.host_vector import HostVector
 from nasimemu.env_emu import EmulatedNASimEnv
 import traceback 
+import nasimemu.nasim.scenarios.utils as u
+from nasimemu.nasim.scenarios import Scenario
+from nasimemu.nasim.scenarios.loader_v2 import ScenarioLoaderV2
 
 class TerminalAction():
     pass
@@ -64,7 +67,9 @@ class PartiallyObservableWrapper():
 
 # observation_format in ['matrix', 'graph']
 class NASimEmuEnv(gym.Env):
-    def __init__(self, scenario_name, emulate=False, step_limit=None, random_init=False, observation_format='matrix', fully_obs=False, augment_with_action=False, verbose=False, feature_dropout_p=0.0, dr_prob_jitter=0.0, dr_cost_jitter=0.0, dr_scan_cost_jitter=0.0):
+    def __init__(self, scenario_name, emulate=False, step_limit=None, random_init=False, observation_format='matrix', fully_obs=False, augment_with_action=False, verbose=False, feature_dropout_p=0.0, dr_prob_jitter=0.0, dr_cost_jitter=0.0, dr_scan_cost_jitter=0.0, 
+                 # auto scenario generation (plumbing only; no behavior yet)
+                 auto_mode='off', auto_template=None, auto_host_range=None, auto_subnet_count=None, auto_topology=None, auto_sensitive_policy=None, auto_seed_base=None):
         # different processes need different seeds
         random.seed()
         np.random.seed()
@@ -83,22 +88,272 @@ class NASimEmuEnv(gym.Env):
         self.scenario_name = scenario_name
         self.random_init = random_init
 
+        # store auto-generation params (unused for now)
+        self.auto_mode = auto_mode or 'off'
+        self.auto_template = auto_template
+        self.auto_host_range = auto_host_range
+        self.auto_subnet_count = auto_subnet_count
+        self.auto_topology = auto_topology
+        self.auto_sensitive_policy = auto_sensitive_policy
+        self.auto_seed_base = auto_seed_base
+
+        # cache for template-derived fixed action space and metadata
+        self._auto_cache = None
+        self._epoch_scenario = None
+        self._roll_on_next_reset = True
+        self._action_signature = None
+
+    # allow trainer to request a new scenario for next episode in per-epoch mode
+    def set_roll_on_next_reset(self, flag=True):
+        self._roll_on_next_reset = bool(flag)
+
+    def _parse_range(self, s, fallback_min, fallback_max):
+        try:
+            a, b = str(s).split('-')
+            return int(a), int(b)
+        except Exception:
+            return int(fallback_min), int(fallback_max)
+
+    def _sample_subnet_sizes(self, count, per_min=6, per_max=8, total_min=72, total_max=96, max_tries=100):
+        for _ in range(max_tries):
+            sizes = [np.random.randint(per_min, per_max+1) for _ in range(count)]
+            tot = sum(sizes)
+            if total_min <= tot <= total_max:
+                return sizes
+        # fallback: clamp to closest total by adjusting first entries
+        sizes = [per_min for _ in range(count)]
+        tot = sum(sizes)
+        idx = 0
+        while tot < total_min and idx < count:
+            inc = min(per_max - sizes[idx], total_min - tot)
+            sizes[idx] += inc
+            tot += inc
+            idx += 1
+        return sizes
+
+    def _build_topology(self, num_subnets, style='mesh'):
+        # num_subnets includes internet (index 0)
+        topo = np.zeros((num_subnets, num_subnets), dtype=int)
+        # connect each subnet to itself
+        for i in range(num_subnets):
+            topo[i][i] = 1
+        # basic chain among 1..N-1
+        for i in range(1, num_subnets-1):
+            topo[i][i+1] = 1
+            topo[i+1][i] = 1
+        # internet connects to 1
+        if num_subnets > 2:
+            topo[0][1] = 1
+            topo[1][0] = 1
+        if style == 'mesh':
+            # add cross links every 3rd node
+            for i in range(1, num_subnets-3):
+                if (i % 3) == 1:
+                    topo[i][i+2] = 1
+                    topo[i+2][i] = 1
+            # connect last to a mid node
+            topo[num_subnets-1][max(1, (num_subnets//2))] = 1
+            topo[max(1, (num_subnets//2))][num_subnets-1] = 1
+        elif style == 'random':
+            # sprinkle a few random extra edges
+            extra = max(2, (num_subnets//3))
+            for _ in range(extra):
+                i = np.random.randint(1, num_subnets)
+                j = np.random.randint(1, num_subnets)
+                if i != j:
+                    topo[i][j] = 1
+                    topo[j][i] = 1
+        # leave as-is for 'chain'
+        return topo.tolist()
+
+    def _ensure_sensitive_service(self, services_map, sensitive_services, all_services):
+        # if none of sensitive_services is enabled, force one that exists in catalog
+        if not any(services_map.get(s, False) for s in sensitive_services):
+            candidates = [s for s in sensitive_services if s in all_services]
+            if candidates:
+                s = random.choice(candidates)
+                services_map[s] = True
+
+    def _generate_firewall(self, subnets, hosts, services, exploits, restrictiveness=5, topology=None):
+        num_subnets = len(subnets)
+        firewall = {}
+        # find services running on each subnet that are vulnerable
+        subnet_services = {}
+        subnet_services[u.INTERNET] = set()
+        # helper: determine if host is vulnerable to exploit
+        def host_vulnerable_to_e(host, e_def):
+            e_srv = e_def[u.EXPLOIT_SERVICE]
+            e_os = e_def[u.EXPLOIT_OS]
+            if not host.services.get(e_srv, False):
+                return False
+            return (e_os is None) or host.os.get(e_os, False)
+        for host_addr, host in hosts.items():
+            subnet = host_addr[0]
+            if subnet not in subnet_services:
+                subnet_services[subnet] = set()
+            for e_def in exploits.values():
+                if host_vulnerable_to_e(host, e_def):
+                    subnet_services[subnet].add(e_def[u.EXPLOIT_SERVICE])
+        for src in range(num_subnets):
+            for dest in range(num_subnets):
+                if src == dest or (topology and not topology[src][dest]):
+                    continue
+                elif src > 2 and dest > 2:
+                    # allow all services between user subnets
+                    firewall[(src, dest)] = set(services)
+                    continue
+                dest_avail = subnet_services.get(dest, set()).copy()
+                if len(dest_avail) <= restrictiveness:
+                    firewall[(src, dest)] = dest_avail.copy()
+                    continue
+                # ensure at least one allowed, then sample up to restrictiveness
+                allowed = set()
+                if dest_avail:
+                    first = random.choice(list(dest_avail))
+                    allowed.add(first)
+                    dest_avail.discard(first)
+                while len(allowed) < restrictiveness and dest_avail:
+                    s = random.choice(list(dest_avail))
+                    allowed.add(s)
+                    dest_avail.discard(s)
+                firewall[(src, dest)] = allowed
+        return {k: v for k, v in firewall.items()}
+
+    def _generate_auto_from_template(self, template_path):
+        # cache template-derived fixed parts
+        if (self._auto_cache is None) or (self._auto_cache.get('template_path') != template_path):
+            loader = ScenarioLoaderV2()
+            sc_t = loader.load(template_path)
+            yaml = loader.yaml_dict
+            self._auto_cache = {
+                'template_path': template_path,
+                'os': list(sc_t.os),
+                'services': list(sc_t.services),
+                'processes': list(sc_t.processes),
+                'exploits': copy.deepcopy(sc_t.exploits),
+                'privescs': copy.deepcopy(sc_t.privescs),
+                'service_scan_cost': sc_t.service_scan_cost,
+                'os_scan_cost': sc_t.os_scan_cost,
+                'subnet_scan_cost': sc_t.subnet_scan_cost,
+                'process_scan_cost': sc_t.process_scan_cost,
+                'address_space_bounds': sc_t.scenario_dict.get('address_space_bounds', None),
+                'service_probabilities': yaml.get('service_probabilities', {}),
+                'process_probabilities': yaml.get('process_probabilities', {}),
+                'sensitive_services': yaml.get('sensitive_services', []),
+                'sensitive_hosts_probs': yaml.get('sensitive_hosts', {}),
+                'step_limit': self.step_limit,
+            }
+
+        T = self._auto_cache
+        # determine host range and subnet count
+        total_min, total_max = self._parse_range(self.auto_host_range or '72-96', 72, 96)
+        subnet_count = int(self.auto_subnet_count or 12)
+        # sample per-subnet sizes ~6-8 like corp/test, and ensure total within range
+        sizes = self._sample_subnet_sizes(subnet_count, per_min=6, per_max=8, total_min=total_min, total_max=total_max)
+        # include internet subnet at index 0
+        subnets = [1] + sizes
+        num_subnets = 1 + subnet_count
+        # build topology
+        style = (self.auto_topology or 'mesh')
+        topology = self._build_topology(num_subnets, style=style)
+        # sensitive host placement: use template probabilities per subnet (1..subnet_count)
+        sensitive_hosts = {}
+        for s_id in range(1, num_subnets):
+            p = float(T['sensitive_hosts_probs'].get(s_id, T['sensitive_hosts_probs'].get(str(s_id), 0.0)))
+            for h in range(subnets[s_id]):
+                if np.random.rand() < p:
+                    sensitive_hosts[(s_id, h)] = 10.0 if s_id == 2 else 10.0
+        # generate hosts with probability maps
+        hosts = {}
+        services = T['services']
+        processes = T['processes']
+        os_list = T['os']
+        srv_prob = {k: float(v) for k, v in T['service_probabilities'].items()}
+        proc_prob = {k: float(v) for k, v in T['process_probabilities'].items()}
+        sensitive_services = T['sensitive_services']
+        for subnet, size in enumerate(subnets):
+            if subnet == u.INTERNET:
+                continue
+            for h in range(size):
+                os_choice = random.choice(os_list)
+                os_map = {osn: (osn == os_choice) for osn in os_list}
+                # sample services
+                srv_map = {}
+                for s_name in services:
+                    p = srv_prob.get(s_name, 0.5)
+                    srv_map[s_name] = (np.random.rand() < p)
+                if not any(srv_map.values()):
+                    # ensure at least one service
+                    s_pick = random.choice(services)
+                    srv_map[s_pick] = True
+                # sample processes
+                proc_map = {}
+                for p_name in processes:
+                    p = proc_prob.get(p_name, 0.2)
+                    proc_map[p_name] = (np.random.rand() < p)
+                # ensure at least one process
+                if not any(proc_map.values()):
+                    p_pick = random.choice(processes)
+                    proc_map[p_pick] = True
+                # ensure sensitive service for sensitive hosts
+                if (subnet, h) in sensitive_hosts and sensitive_services:
+                    self._ensure_sensitive_service(srv_map, sensitive_services, services)
+                addr = (subnet, h)
+                value = float(sensitive_hosts.get(addr, 1.0))
+                host = u.make_host(address=addr, os=os_map, services=srv_map, processes=proc_map, value=value, discovery_value=1)
+                hosts[addr] = host
+        # firewall
+        fw = self._generate_firewall(subnets, hosts, services, T['exploits'], restrictiveness=5, topology=topology)
+        # assemble scenario dict
+        scenario_dict = {
+            u.SUBNETS: subnets,
+            u.TOPOLOGY: topology,
+            u.OS: os_list,
+            u.SERVICES: services,
+            u.PROCESSES: processes,
+            u.SENSITIVE_HOSTS: sensitive_hosts,
+            u.EXPLOITS: copy.deepcopy(T['exploits']),
+            u.PRIVESCS: copy.deepcopy(T['privescs']),
+            u.OS_SCAN_COST: T['os_scan_cost'],
+            u.SERVICE_SCAN_COST: T['service_scan_cost'],
+            u.SUBNET_SCAN_COST: T['subnet_scan_cost'],
+            u.PROCESS_SCAN_COST: T['process_scan_cost'],
+            u.FIREWALL: fw,
+            u.HOSTS: hosts,
+            u.STEP_LIMIT: self.step_limit,
+        }
+        if T['address_space_bounds'] is not None:
+            scenario_dict['address_space_bounds'] = T['address_space_bounds']
+        sc = Scenario(scenario_dict, name='auto_from_template', generated=True)
+        return sc
+
     def _generate_env(self):
-        if ':' in self.scenario_name: # there are multiple possible scenarios
-            scenarios = self.scenario_name.split(':')
-            scenario = random.choice(scenarios)
+        if (self.auto_mode and self.auto_mode != 'off') and (self.auto_template and self.auto_template.endswith('.yaml')):
+            if self.auto_mode == 'per_epoch':
+                if (self._epoch_scenario is None) or self._roll_on_next_reset:
+                    scenario = self._generate_auto_from_template(self.auto_template)
+                    self._epoch_scenario = scenario
+                    self._roll_on_next_reset = False
+                else:
+                    scenario = self._epoch_scenario
+            else: # per_episode
+                scenario = self._generate_auto_from_template(self.auto_template)
         else:
-            scenario = self.scenario_name
+            if ':' in self.scenario_name: # there are multiple possible scenarios
+                scenarios = self.scenario_name.split(':')
+                scenario = random.choice(scenarios)
+            else:
+                scenario = self.scenario_name
 
-        if scenario.endswith(".yaml"):        # static scenario
-            scenario = nasim.load_scenario(scenario)
+            if scenario.endswith(".yaml"):        # static scenario
+                scenario = nasim.load_scenario(scenario)
 
-        else:   # generated scenario
-            scenario_params = benchmark.AVAIL_GEN_BENCHMARKS[scenario]
-            scenario_params['step_limit'] = None
+            else:   # generated scenario
+                scenario_params = benchmark.AVAIL_GEN_BENCHMARKS[scenario]
+                scenario_params['step_limit'] = None
 
-            generator = NASimScenarioGenerator()
-            scenario = generator.generate(randomize_subnet_sizes=True, **scenario_params)
+                generator = NASimScenarioGenerator()
+                scenario = generator.generate(randomize_subnet_sizes=True, **scenario_params)
 
         # apply light per-episode jitter to improve robustness (training-time domain randomization)
         def _jitter_prob(p):
@@ -138,6 +393,16 @@ class NASimEmuEnv(gym.Env):
         # self.edge_index = self._gen_edge_index()
         self.exploit_list, self.privesc_list, self.action_list = self._create_action_lists()
         self.action_cls = [x[0] for x  in self.action_list]
+
+        # enforce fixed action space across resets for auto mode
+        if self.auto_mode and self.auto_mode != 'off':
+            exploit_names = [name for name, _ in self.exploit_list]
+            privesc_names = [name for name, _ in self.privesc_list]
+            signature = (tuple(exploit_names), tuple(privesc_names))
+            if self._action_signature is None:
+                self._action_signature = signature
+            else:
+                assert signature == self._action_signature, "Auto-generated scenario changed action space; ensure template OS/services/exploits/privescs remain constant."
 
         host_num_map = self.env.scenario.host_num_map
         self.host_index = np.array( sorted(host_num_map, key=host_num_map.get) )# fixed order node index

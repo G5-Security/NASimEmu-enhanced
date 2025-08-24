@@ -95,7 +95,22 @@ class NASimDebug():
         return {'eval_trn': log_trn, 'eval_tst': log_tst}
 
     def _eval(self, net, scenario_name):
-        test_env = SubprocVecEnv([lambda: gym.make('NASimEmuEnv-v99', random_init=False, scenario_name=scenario_name) for i in range(config.eval_batch)], in_series=(config.eval_batch // config.cpus), context='fork')
+        # choose auto overrides depending on whether this is test or train
+        is_test = (config.test_scenario_name is not None) and (scenario_name == config.test_scenario_name)
+        auto_mode_use = getattr(config, 'auto_mode_test', None) if is_test and getattr(config, 'auto_mode_test', None) is not None else getattr(config, 'auto_mode', 'off')
+        auto_template_use = getattr(config, 'auto_template_test', None) if is_test and getattr(config, 'auto_template_test', None) is not None else getattr(config, 'auto_template', None)
+
+        def make_one():
+            return gym.make('NASimEmuEnv-v99', random_init=False, scenario_name=scenario_name,
+                auto_mode=auto_mode_use, auto_template=auto_template_use,
+                auto_host_range=getattr(config, 'auto_host_range', None),
+                auto_subnet_count=getattr(config, 'auto_subnet_count', None),
+                auto_topology=getattr(config, 'auto_topology', None),
+                auto_sensitive_policy=getattr(config, 'auto_sensitive_policy', None),
+                auto_seed_base=getattr(config, 'auto_seed_base', None)
+            )
+
+        test_env = SubprocVecEnv([lambda: make_one() for i in range(config.eval_batch)], in_series=(config.eval_batch // config.cpus), context='fork')
         tqdm_val = tqdm(desc='Validating', unit=' problems')
 
         saved_state = net.__class__() # create a fresh instance
