@@ -52,6 +52,7 @@ class NASimConfig():
 		config.auto_topology = getattr(args, 'auto_topology', None)
 		config.auto_sensitive_policy = getattr(args, 'auto_sensitive_policy', None)
 		config.auto_seed_base = getattr(args, 'auto_seed_base', None)
+		config.auto_sensitive_jitter = getattr(args, 'auto_sensitive_jitter', 0.0)
 		# separate test template/mode if provided
 		config.auto_template_test = getattr(args, 'auto_template_test', None)
 		config.auto_mode_test = getattr(args, 'auto_mode_test', None)
@@ -81,6 +82,7 @@ class NASimConfig():
 			auto_topology=config.auto_topology,
 			auto_sensitive_policy=config.auto_sensitive_policy,
 			auto_seed_base=config.auto_seed_base,
+			auto_sensitive_jitter=config.auto_sensitive_jitter,
 		)
 		s = env.reset()
 		
@@ -135,3 +137,5 @@ class NASimConfig():
 		# Separate test-time auto controls (optional)
 		argparse.add_argument('--auto_mode_test', type=str, default=None, choices=['off', 'per_episode', 'per_epoch'], help="Override auto_mode for test eval only")
 		argparse.add_argument('--auto_template_test', type=str, default=None, help="Use a different template YAML for test eval only")
+		# Sensitivity probability jitter
+		argparse.add_argument('--auto_sensitive_jitter', type=float, default=0.0, help="Per-episode jitter for per-subnet sensitive host probabilities (e.g., 0.1 -> ±10%)")

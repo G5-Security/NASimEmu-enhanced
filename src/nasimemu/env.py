@@ -70,7 +70,7 @@ class PartiallyObservableWrapper():
 class NASimEmuEnv(gym.Env):
     def __init__(self, scenario_name, emulate=False, step_limit=None, random_init=False, observation_format='matrix', fully_obs=False, augment_with_action=False, verbose=False, feature_dropout_p=0.0, dr_prob_jitter=0.0, dr_cost_jitter=0.0, dr_scan_cost_jitter=0.0, 
                  # auto scenario generation (plumbing only; no behavior yet)
-                 auto_mode='off', auto_template=None, auto_host_range=None, auto_subnet_count=None, auto_topology=None, auto_sensitive_policy=None, auto_seed_base=None):
+                 auto_mode='off', auto_template=None, auto_host_range=None, auto_subnet_count=None, auto_topology=None, auto_sensitive_policy=None, auto_seed_base=None, auto_sensitive_jitter=0.0):
         # different processes need different seeds
         random.seed()
         np.random.seed()
@@ -97,6 +97,7 @@ class NASimEmuEnv(gym.Env):
         self.auto_topology = auto_topology
         self.auto_sensitive_policy = auto_sensitive_policy
         self.auto_seed_base = auto_seed_base
+        self.auto_sensitive_jitter = float(auto_sensitive_jitter or 0.0)
 
         # cache for template-derived fixed action space and metadata
         self._auto_cache = None
@@ -260,7 +261,12 @@ class NASimEmuEnv(gym.Env):
         # sensitive host placement: use template probabilities per subnet (1..subnet_count)
         sensitive_hosts = {}
         for s_id in range(1, num_subnets):
-            p = float(T['sensitive_hosts_probs'].get(s_id, T['sensitive_hosts_probs'].get(str(s_id), 0.0)))
+            p0 = float(T['sensitive_hosts_probs'].get(s_id, T['sensitive_hosts_probs'].get(str(s_id), 0.0)))
+            if self.auto_sensitive_jitter > 0.0:
+                eps = np.random.uniform(-self.auto_sensitive_jitter, self.auto_sensitive_jitter)
+                p = float(np.clip(p0 * (1.0 + eps), 0.0, 1.0))
+            else:
+                p = p0
             for h in range(subnets[s_id]):
                 if np.random.rand() < p:
                     sensitive_hosts[(s_id, h)] = 10.0 if s_id == 2 else 10.0
