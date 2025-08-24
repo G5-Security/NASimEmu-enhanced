@@ -146,7 +146,7 @@ if __name__ == '__main__':
 
 		for step_trace in range(config.ppo_t):
 			s_orig = s
-
+			
 			a, v, pi, raw_a = net(s)
 			a = np.array(a, dtype=object)
 			s, r, d, i = env.step(a)
@@ -235,6 +235,7 @@ if __name__ == '__main__':
 			model_file = os.path.join(wandb.run.dir, "model.pt")
 			net.save(model_file)
 			wandb.save(model_file)
+		
 
 		# finish if max_epochs exceeded
 		if config.max_epochs and (step // config.log_rate >= config.max_epochs):

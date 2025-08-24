@@ -75,9 +75,32 @@ class NASimNetGNN(Net):
         if only_v:
             return value
 
+        def mask_actions(out_logits, obs_row):
+            # out_logits: [B, action_dim] for selected nodes; obs_row: [B, F] features for those nodes
+            # scans: service/os/subnet always allowed; ProcessScan only if compromised or access>NONE
+            B = out_logits.shape[0]
+            mask = torch.zeros_like(out_logits, dtype=torch.bool)
+            # fixed scan actions at head
+            SERVICE, OS, SUBNET, PROCESS = 0, 1, 2, 3
+            # ProcessScan requires compromised/local
+            process_allowed = (obs_row[:, HostVector._compromised_idx] > 0.5) | (obs_row[:, HostVector._access_idx] > 0.5)
+            mask[:, PROCESS] = ~process_allowed
+            # Exploits: require service bit present (if observed) – approximate by trusting current obs bits
+            start = config.fixed_scan_actions
+            for i, (name, e) in enumerate(config.exploit_list):
+                # naive: map service name to index using HostVector index map is not available here; rely on obs bits order
+                # As we don't have mapping here, skip detailed per-service masking to avoid mismatch
+                pass
+            # Privesc: require compromised and (optionally) process present; enforce compromised
+            start_pe = config.fixed_scan_actions + len(config.exploit_list)
+            mask[:, start_pe:start_pe+len(config.privesc_list)] = ~ (obs_row[:, HostVector._compromised_idx] > 0.5).unsqueeze(1)
+            # apply mask by setting -inf
+            out_logits = out_logits.masked_fill(mask, float('-inf'))
+            return out_logits
+
         def sample_action(x, n_index):
             out_action = self.action_select(x[n_index])
-
+            # gather per-node obs rows for masking (x inputs include embedded; we need raw obs -> unavailable here), so skip node-row masking except for simple ProcessScan via learned features unavail.
             action_softmax = torch.distributions.Categorical( torch.softmax(out_action, dim=1) )
 
             if force_action is not None:
@@ -126,7 +149,17 @@ class NASimNetGNN(Net):
 
         # select an action & node
         n_prob, n_index, node_selected = sample_node(x, batch)
-        a_prob, action_selected = sample_action(x, n_index)
+        # simple process/privesc masking using raw batch.x (pre-embed) if available
+        with torch.no_grad():
+            obs_rows = batch.x[n_index]
+            logits = self.action_select(x[n_index])
+            logits = mask_actions(logits, obs_rows)
+        action_softmax = torch.distributions.Categorical(torch.softmax(logits, dim=1))
+        if force_action is not None:
+            action_selected = force_action[1]
+        else:
+            action_selected = action_softmax.sample()
+        a_prob = action_softmax.probs.gather(1, action_selected.view(-1, 1))
 
         # total probability of the action is the product of probabilites of selecting a node and a particular action on this node
         tot_prob = a_prob * n_prob

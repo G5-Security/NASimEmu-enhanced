@@ -1,0 +1,189 @@
+{
+  "metadata": {
+    "script_version": 2,
+    "cwd": "/home/T2430409/NASimEmu-enhanced/NASimEmu-agents",
+    "timestamp": "2025-08-22T13:53:24.891048Z",
+    "num_runs": 3,
+    "description": "Model trained with 0.8 base train, 0.2 varA 0.2 varB scenarios completed ",
+    "train_cmd": "python main.py ../scenarios/corp_100hosts_dynamic.v2.yaml --eval -load_model wandb/latest-run/files/model.pt -device cpu -cpus 8 -net_class NASimNetGNN_LSTM -use_a_t -episode_step_limit 400 -observation_format graph_v2 -mp_iterations 3 -augment_with_action --feature_dropout_p 0.0 --dr_prob_jitter 0.0 --dr_cost_jitter 0.0 --dr_scan_cost_jitter 0.0",
+    "test_cmd": "python main.py ../scenarios/corp_100hosts_dynamic_test.v2.yaml --eval -load_model wandb/latest-run/files/model.pt -device cpu -cpus 8 -net_class NASimNetGNN_LSTM -use_a_t -episode_step_limit 400 -observation_format graph_v2 -mp_iterations 3 -augment_with_action --feature_dropout_p 0.0 --dr_prob_jitter 0.0 --dr_cost_jitter 0.0 --dr_scan_cost_jitter 0.0",
+    "train_cmd_parsed": {
+      "raw": "python main.py ../scenarios/corp_100hosts_dynamic.v2.yaml --eval -load_model wandb/latest-run/files/model.pt -device cpu -cpus 8 -net_class NASimNetGNN_LSTM -use_a_t -episode_step_limit 400 -observation_format graph_v2 -mp_iterations 3 -augment_with_action --feature_dropout_p 0.0 --dr_prob_jitter 0.0 --dr_cost_jitter 0.0 --dr_scan_cost_jitter 0.0",
+      "python": "python",
+      "entry": "main.py",
+      "scenario_arg": "../scenarios/corp_100hosts_dynamic.v2.yaml",
+      "flags": {
+        "eval": true,
+        "load_model": "wandb/latest-run/files/model.pt",
+        "device": "cpu",
+        "cpus": "8",
+        "net_class": "NASimNetGNN_LSTM",
+        "use_a_t": true,
+        "episode_step_limit": "400",
+        "observation_format": "graph_v2",
+        "mp_iterations": "3",
+        "augment_with_action": true,
+        "feature_dropout_p": "0.0",
+        "dr_prob_jitter": "0.0",
+        "dr_cost_jitter": "0.0",
+        "dr_scan_cost_jitter": "0.0"
+      },
+      "bool_flags": [
+        "eval",
+        "use_a_t",
+        "augment_with_action"
+      ],
+      "net_class": "NASimNetGNN_LSTM",
+      "episode_step_limit": "400",
+      "mp_iterations": "3",
+      "observation_format": "graph_v2",
+      "device": "cpu",
+      "cpus": "8",
+      "feature_dropout_p": "0.0",
+      "dr_prob_jitter": "0.0",
+      "dr_cost_jitter": "0.0",
+      "dr_scan_cost_jitter": "0.0",
+      "load_model": "wandb/latest-run/files/model.pt",
+      "use_a_t": true,
+      "augment_with_action": true,
+      "eval": true
+    },
+    "test_cmd_parsed": {
+      "raw": "python main.py ../scenarios/corp_100hosts_dynamic_test.v2.yaml --eval -load_model wandb/latest-run/files/model.pt -device cpu -cpus 8 -net_class NASimNetGNN_LSTM -use_a_t -episode_step_limit 400 -observation_format graph_v2 -mp_iterations 3 -augment_with_action --feature_dropout_p 0.0 --dr_prob_jitter 0.0 --dr_cost_jitter 0.0 --dr_scan_cost_jitter 0.0",
+      "python": "python",
+      "entry": "main.py",
+      "scenario_arg": "../scenarios/corp_100hosts_dynamic_test.v2.yaml",
+      "flags": {
+        "eval": true,
+        "load_model": "wandb/latest-run/files/model.pt",
+        "device": "cpu",
+        "cpus": "8",
+        "net_class": "NASimNetGNN_LSTM",
+        "use_a_t": true,
+        "episode_step_limit": "400",
+        "observation_format": "graph_v2",
+        "mp_iterations": "3",
+        "augment_with_action": true,
+        "feature_dropout_p": "0.0",
+        "dr_prob_jitter": "0.0",
+        "dr_cost_jitter": "0.0",
+        "dr_scan_cost_jitter": "0.0"
+      },
+      "bool_flags": [
+        "eval",
+        "use_a_t",
+        "augment_with_action"
+      ],
+      "net_class": "NASimNetGNN_LSTM",
+      "episode_step_limit": "400",
+      "mp_iterations": "3",
+      "observation_format": "graph_v2",
+      "device": "cpu",
+      "cpus": "8",
+      "feature_dropout_p": "0.0",
+      "dr_prob_jitter": "0.0",
+      "dr_cost_jitter": "0.0",
+      "dr_scan_cost_jitter": "0.0",
+      "load_model": "wandb/latest-run/files/model.pt",
+      "use_a_t": true,
+      "augment_with_action": true,
+      "eval": true
+    }
+  },
+  "train": {
+    "runs": [
+      {
+        "reward_avg": 0.9456156451053781,
+        "reward_avg_episodes": 277.53951782975463,
+        "eplen_avg": 293.50306748466255,
+        "captured_avg": 30.711656441717793,
+        "num_parameters": 119383,
+        "model_loaded_path": "wandb/latest-run/files/model.pt",
+        "stdout_tail": "  (action_select): Linear(in_features=64, out_features=18, bias=True)\n  (value_function): Linear(in_features=64, out_features=1, bias=True)\n)\nNumber of parameters: 119383\nModel loaded: wandb/latest-run/files/model.pt\n{'eval_trn': {'reward_avg': np.float64(0.9456156451053781),\n              'reward_avg_episodes': np.float64(277.53951782975463),\n              'eplen_avg': np.float64(293.50306748466255),\n              'captured_avg': np.float64(30.711656441717793)},\n 'eval_tst': None}",
+        "return_code": 0
+      },
+      {
+        "reward_avg": 0.9407121471737586,
+        "reward_avg_episodes": 276.97761694785277,
+        "eplen_avg": 294.4355828220859,
+        "captured_avg": 30.66871165644172,
+        "num_parameters": 119383,
+        "model_loaded_path": "wandb/latest-run/files/model.pt",
+        "stdout_tail": "  (action_select): Linear(in_features=64, out_features=18, bias=True)\n  (value_function): Linear(in_features=64, out_features=1, bias=True)\n)\nNumber of parameters: 119383\nModel loaded: wandb/latest-run/files/model.pt\n{'eval_trn': {'reward_avg': np.float64(0.9407121471737586),\n              'reward_avg_episodes': np.float64(276.97761694785277),\n              'eplen_avg': np.float64(294.4355828220859),\n              'captured_avg': np.float64(30.66871165644172)},\n 'eval_tst': None}",
+        "return_code": 0
+      },
+      {
+        "reward_avg": 0.9540739394065227,
+        "reward_avg_episodes": 276.28192101226995,
+        "eplen_avg": 289.5828220858896,
+        "captured_avg": 30.54601226993865,
+        "num_parameters": 119383,
+        "model_loaded_path": "wandb/latest-run/files/model.pt",
+        "stdout_tail": "  (action_select): Linear(in_features=64, out_features=18, bias=True)\n  (value_function): Linear(in_features=64, out_features=1, bias=True)\n)\nNumber of parameters: 119383\nModel loaded: wandb/latest-run/files/model.pt\n{'eval_trn': {'reward_avg': np.float64(0.9540739394065227),\n              'reward_avg_episodes': np.float64(276.28192101226995),\n              'eplen_avg': np.float64(289.5828220858896),\n              'captured_avg': np.float64(30.54601226993865)},\n 'eval_tst': None}",
+        "return_code": 0
+      }
+    ],
+    "average": {
+      "reward_avg": 0.9468005772285532,
+      "reward_avg_episodes": 276.9330185966258,
+      "eplen_avg": 292.5071574642127,
+      "captured_avg": 30.642126789366053,
+      "num_successful_runs": 3
+    }
+  },
+  "test": {
+    "runs": [
+      {
+        "reward_avg": 2.985142308618129,
+        "reward_avg_episodes": 145.94228096242333,
+        "eplen_avg": 48.88957055214724,
+        "captured_avg": 15.07361963190184,
+        "num_parameters": 119383,
+        "model_loaded_path": "wandb/latest-run/files/model.pt",
+        "stdout_tail": "  (action_select): Linear(in_features=64, out_features=18, bias=True)\n  (value_function): Linear(in_features=64, out_features=1, bias=True)\n)\nNumber of parameters: 119383\nModel loaded: wandb/latest-run/files/model.pt\n{'eval_trn': {'reward_avg': np.float64(2.985142308618129),\n              'reward_avg_episodes': np.float64(145.94228096242333),\n              'eplen_avg': np.float64(48.88957055214724),\n              'captured_avg': np.float64(15.07361963190184)},\n 'eval_tst': None}",
+        "return_code": 0
+      },
+      {
+        "reward_avg": 2.8996279534729394,
+        "reward_avg_episodes": 145.26954338121118,
+        "eplen_avg": 50.099378881987576,
+        "captured_avg": 15.01863354037267,
+        "num_parameters": 119383,
+        "model_loaded_path": "wandb/latest-run/files/model.pt",
+        "stdout_tail": "  (action_select): Linear(in_features=64, out_features=18, bias=True)\n  (value_function): Linear(in_features=64, out_features=1, bias=True)\n)\nNumber of parameters: 119383\nModel loaded: wandb/latest-run/files/model.pt\n{'eval_trn': {'reward_avg': np.float64(2.8996279534729394),\n              'reward_avg_episodes': np.float64(145.26954338121118),\n              'eplen_avg': np.float64(50.099378881987576),\n              'captured_avg': np.float64(15.01863354037267)},\n 'eval_tst': None}",
+        "return_code": 0
+      },
+      {
+        "reward_avg": 2.9844748818062476,
+        "reward_avg_episodes": 146.47726945935582,
+        "eplen_avg": 49.079754601226995,
+        "captured_avg": 15.128834355828221,
+        "num_parameters": 119383,
+        "model_loaded_path": "wandb/latest-run/files/model.pt",
+        "stdout_tail": "  (action_select): Linear(in_features=64, out_features=18, bias=True)\n  (value_function): Linear(in_features=64, out_features=1, bias=True)\n)\nNumber of parameters: 119383\nModel loaded: wandb/latest-run/files/model.pt\n{'eval_trn': {'reward_avg': np.float64(2.9844748818062476),\n              'reward_avg_episodes': np.float64(146.47726945935582),\n              'eplen_avg': np.float64(49.079754601226995),\n              'captured_avg': np.float64(15.128834355828221)},\n 'eval_tst': None}",
+        "return_code": 0
+      }
+    ],
+    "average": {
+      "reward_avg": 2.956415047965772,
+      "reward_avg_episodes": 145.89636460099678,
+      "eplen_avg": 49.35623467845394,
+      "captured_avg": 15.07369584270091,
+      "num_successful_runs": 3
+    }
+  },
+  "comparison": {
+    "delta": {
+      "reward_avg": 2.009614470737219,
+      "reward_avg_episodes": -131.03665399562902,
+      "eplen_avg": -243.15092278575875,
+      "captured_avg": -15.568430946665142
+    },
+    "ratio": {
+      "reward_avg": 3.12253194502659,
+      "reward_avg_episodes": 0.5268290698607739,
+      "eplen_avg": 0.16873513491543368,
+      "captured_avg": 0.49192720682599744
+    }
+  }
+}

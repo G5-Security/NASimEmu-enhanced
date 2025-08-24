@@ -43,14 +43,23 @@ def a2c(r, v, v_, pi, gamma, alpha_v, alpha_h, q_range=None, num_actions=None):
 	return loss, loss_pi, loss_v, loss_h, entropy
 
 # this expects concatenated batch of states
-def _replay_batch(net, s, raw_a):
-	_, v, pi, _ = net(s,  force_action=raw_a)
+# def _replay_batch(net, s, raw_a):
+# 	_, v, pi, _ = net(s,  force_action=raw_a)
 
-	v = v.flatten()
-	pi = pi.flatten()
+# 	v = v.flatten()
+# 	pi = pi.flatten()
 
-	return v, pi
+# 	return v, pi
 
+############################################################################################
+#New add
+def _replay_batch(net, s, raw_a, reset_hidden=False):
+    # Pass reset_hidden to forward
+    _, v, pi, _ = net(s, force_action=raw_a, reset_hidden=reset_hidden)
+    v = v.flatten()
+    pi = pi.flatten()
+    return v, pi
+######################################################################################
 # this version expects the states in sequence
 def _replay_lstm(net, s, raw_a, done, hidden_s0):
 	ppo_t = len(s)
@@ -72,11 +81,11 @@ def _replay_lstm(net, s, raw_a, done, hidden_s0):
 
 	return v, pi
 
-def ppo(s, raw_a, a_cnt, done, v_target, net, gamma, alpha_v, alpha_h, ppo_k, ppo_eps, use_a_t, v_range=None, lstm=False, hidden_s0=None):
+def ppo(s, raw_a, a_cnt, done, v_target, net, gamma, alpha_v, alpha_h, ppo_k, ppo_eps, use_a_t, v_range=None, lstm=False, hidden_s0=None, reset_hidden=False):
 	if lstm:
 		_, pi_old = _replay_lstm(net, s, raw_a, done, hidden_s0)
 	else:
-		_, pi_old = _replay_batch(net, s, raw_a)
+		_, pi_old = _replay_batch(net, s, raw_a ,reset_hidden=reset_hidden) #added reset_hidden new
 
 	pi_old = pi_old.detach()
 
@@ -92,7 +101,7 @@ def ppo(s, raw_a, a_cnt, done, v_target, net, gamma, alpha_v, alpha_h, ppo_k, pp
 		if lstm:
 			v, pi = _replay_lstm(net, s, raw_a, done, hidden_s0)
 		else:
-			v, pi = _replay_batch(net, s, raw_a)
+			v, pi = _replay_batch(net, s, raw_a, reset_hidden=reset_hidden) #added reset_hidden new
 
 		if use_a_t:
 			v_adv = torch.clamp(v, 0., None)

@@ -64,7 +64,7 @@ class PartiallyObservableWrapper():
 
 # observation_format in ['matrix', 'graph']
 class NASimEmuEnv(gym.Env):
-    def __init__(self, scenario_name, emulate=False, step_limit=None, random_init=False, observation_format='matrix', fully_obs=False, augment_with_action=False, verbose=False):
+    def __init__(self, scenario_name, emulate=False, step_limit=None, random_init=False, observation_format='matrix', fully_obs=False, augment_with_action=False, verbose=False, feature_dropout_p=0.0, dr_prob_jitter=0.0, dr_cost_jitter=0.0, dr_scan_cost_jitter=0.0):
         # different processes need different seeds
         random.seed()
         np.random.seed()
@@ -75,6 +75,10 @@ class NASimEmuEnv(gym.Env):
         self.fully_obs = fully_obs
         self.augment_with_action = augment_with_action
         self.observation_format = observation_format
+        self.feature_dropout_p = float(feature_dropout_p or 0.0)
+        self.dr_prob_jitter = float(dr_prob_jitter or 0.0)
+        self.dr_cost_jitter = float(dr_cost_jitter or 0.0)
+        self.dr_scan_cost_jitter = float(dr_scan_cost_jitter or 0.0)
 
         self.scenario_name = scenario_name
         self.random_init = random_init
@@ -95,6 +99,33 @@ class NASimEmuEnv(gym.Env):
 
             generator = NASimScenarioGenerator()
             scenario = generator.generate(randomize_subnet_sizes=True, **scenario_params)
+
+        # apply light per-episode jitter to improve robustness (training-time domain randomization)
+        def _jitter_prob(p):
+            if self.dr_prob_jitter <= 0.0:
+                return p
+            eps = np.random.uniform(-self.dr_prob_jitter, self.dr_prob_jitter)
+            return float(np.clip(p * (1.0 + eps), 0.0, 1.0))
+        def _jitter_cost(c):
+            if self.dr_cost_jitter <= 0.0:
+                return c
+            eps = np.random.uniform(-self.dr_cost_jitter, self.dr_cost_jitter)
+            c2 = int(max(1, round(c * (1.0 + eps))))
+            return c2
+        if self.dr_prob_jitter > 0.0 or self.dr_cost_jitter > 0.0:
+            # exploits
+            for e in scenario.exploits.values():
+                e['prob'] = _jitter_prob(e['prob'])
+                e['cost'] = _jitter_cost(e['cost'])
+            # privesc
+            for pe in scenario.privescs.values():
+                pe['prob'] = _jitter_prob(pe['prob'])
+                pe['cost'] = _jitter_cost(pe['cost'])
+        if self.dr_scan_cost_jitter > 0.0:
+            scenario.scenario_dict['service_scan_cost'] = _jitter_cost(scenario.scenario_dict['service_scan_cost'])
+            scenario.scenario_dict['subnet_scan_cost'] = _jitter_cost(scenario.scenario_dict['subnet_scan_cost'])
+            scenario.scenario_dict['process_scan_cost'] = _jitter_cost(scenario.scenario_dict['process_scan_cost'])
+            scenario.scenario_dict['os_scan_cost'] = _jitter_cost(scenario.scenario_dict['os_scan_cost'])
 
         if self.emulate:
             self.env = EmulatedNASimEnv(scenario=scenario)
@@ -167,6 +198,25 @@ class NASimEmuEnv(gym.Env):
 
         return s
 
+    def _apply_feature_dropout(self, s):
+        if self.feature_dropout_p <= 0.0:
+            return s
+        # apply dropout only to host rows (exclude last action-result row)
+        out = s.copy()
+        srv_slice = HostVector._service_idx_slice()
+        proc_slice = HostVector._process_idx_slice()
+        # Bernoulli masks per row and per feature
+        for i in range(len(out)-1):
+            # Dropout services
+            if srv_slice.stop <= out.shape[1]:
+                mask_srv = (np.random.rand(srv_slice.stop - srv_slice.start) >= self.feature_dropout_p).astype(out.dtype)
+                out[i, srv_slice] *= mask_srv
+            # Dropout processes
+            if proc_slice.stop <= out.shape[1]:
+                mask_proc = (np.random.rand(proc_slice.stop - proc_slice.start) >= self.feature_dropout_p).astype(out.dtype)
+                out[i, proc_slice] *= mask_proc
+        return out
+
     # action = ((subnet, host), action_id)
     def step(self, action):
         if type(action) in [np.ndarray, list, tuple]:
@@ -191,6 +241,9 @@ class NASimEmuEnv(gym.Env):
 
         if not self.fully_obs:
             s = self.env_po_wrapper.step(s)
+
+        # optionally apply feature dropout on observed service/process bits (training-time robustness)
+        s = self._apply_feature_dropout(s)
 
         # track newly discovered subnets and remember the origin
         if isinstance(a, SubnetScan):
@@ -261,6 +314,9 @@ class NASimEmuEnv(gym.Env):
 
         if not self.fully_obs:
             s = self.env_po_wrapper.reset(s)
+
+        # apply feature dropout at reset as well
+        s = self._apply_feature_dropout(s)
 
         self.s_raw = s
 

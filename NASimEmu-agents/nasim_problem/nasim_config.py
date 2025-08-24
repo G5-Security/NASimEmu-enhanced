@@ -54,11 +54,16 @@ class NASimConfig():
 		# config.net_class = NASimNetGNN_LSTM
 
 		# calculate number of actions
-		env = NASimEmuEnv(scenario_name=config.scenario_name, augment_with_action=config.augment_with_action)
+		env = NASimEmuEnv(scenario_name=config.scenario_name, augment_with_action=config.augment_with_action, feature_dropout_p=getattr(args, 'feature_dropout_p', 0.0), dr_prob_jitter=getattr(args, 'dr_prob_jitter', 0.0), dr_cost_jitter=getattr(args, 'dr_cost_jitter', 0.0), dr_scan_cost_jitter=getattr(args, 'dr_scan_cost_jitter', 0.0))
 		s = env.reset()
 
 		config.action_dim = len(env.action_list)
 		config.node_dim = s.shape[1] + 1 # + 1 feature (node/subnet)
+
+		# expose action metadata for masking in all nets
+		config.fixed_scan_actions = 4  # ServiceScan, OSScan, SubnetScan, ProcessScan
+		config.exploit_list = env.exploit_list  # list of (name, dict)
+		config.privesc_list = env.privesc_list  # list of (name, dict)
 
 		if config.net_class == BaselineAgent:
 			BaselineAgent.action_list = [x[1]['name'] if 'name' in x[1] else None for x in env.action_list]	 # action ids
@@ -87,3 +92,7 @@ class NASimConfig():
 
 		argparse.add_argument('--emulate', action='store_const', const=True, help="Emulate the network (via vagrant; use only with --trace)")
 		argparse.add_argument('--test_scenario', type=str, help="Additional test scenarios to separately test the model (aka train/test datasets).")
+		argparse.add_argument('--feature_dropout_p', type=float, default=0.0, help="Training-time feature dropout probability for observed service/process bits (0.0 to disable)")
+		argparse.add_argument('--dr_prob_jitter', type=float, default=0.0, help="Per-episode multiplicative jitter for exploit/privesc probabilities (e.g., 0.1 -> ±10%)")
+		argparse.add_argument('--dr_cost_jitter', type=float, default=0.0, help="Per-episode multiplicative jitter for exploit/privesc/scan costs (rounded, min 1)")
+		argparse.add_argument('--dr_scan_cost_jitter', type=float, default=0.0, help="Per-episode multiplicative jitter for scan costs (rounded, min 1)")
