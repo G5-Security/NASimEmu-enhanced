@@ -2,6 +2,7 @@ import numpy as np
 import gym, torch, logging
 
 import wandb, argparse, itertools, os, random
+import json, time
 
 from vec_env.subproc_vec_env import SubprocVecEnv
 from tqdm import tqdm
@@ -124,6 +125,20 @@ if __name__ == '__main__':
 	wandb.init(project=problem.get_project_name(), name=problem.get_run_name(), config=config)
 	wandb.watch(net, log='all')
 
+	# ---------------------------
+	# Local per-episode JSON logger
+	# ---------------------------
+	log_dir = os.path.join(os.path.dirname(__file__), 'training_data', 'latest')
+	os.makedirs(log_dir, exist_ok=True)
+	jsonl_path = os.path.join(log_dir, 'latest.json')
+
+	def _append_jsonl(path, obj):
+		try:
+			with open(path, 'a') as f:
+				f.write(json.dumps(obj) + "\n")
+		except Exception as e:
+			logging.getLogger(__name__).warning(f"Failed to write JSON log: {e}")
+
 	tot_env_steps = 0
 	norm_log = []
 	entropy_log = []
@@ -156,6 +171,8 @@ if __name__ == '__main__':
 
 			s_true = [x['s_true'] for x in i]
 			d_true = [x['d_true'] for x in i] # note: currently d == d_true (dependency in v_target, q_target computations and reccurency in ppo
+
+			# (episode-level JSON logging moved to log interval below)
 
 			trace.append( (s_orig, raw_a, a_cnt, r, s_true, d_true) )
 
@@ -230,6 +247,34 @@ if __name__ == '__main__':
 
 			print(log)
 			wandb.log(log)
+
+			# Write one JSON record per logging interval (epoch-like)
+			def _to_serializable(x):
+				try:
+					import numpy as _np
+					if isinstance(x, (_np.floating, _np.integer)):
+						return x.item()
+				except Exception:
+					pass
+				return x
+
+			log_json = {
+				'timestamp': time.time(),
+				'train_step': int(step),
+				'env_steps_total': int(tot_env_steps),
+				'loss': float(_to_serializable(log['loss'])),
+				'grad_mean': float(_to_serializable(log['grad_mean'])),
+				'grad_min': float(_to_serializable(log['grad_min'])),
+				'grad_max': float(_to_serializable(log['grad_max'])),
+				'entropy_mean': float(_to_serializable(log['entropy_mean'])),
+				'entropy_min': float(_to_serializable(log['entropy_min'])),
+				'entropy_max': float(_to_serializable(log['entropy_max'])),
+				'lr': float(_to_serializable(log['lr'])),
+				'alpha_h': float(_to_serializable(log['alpha_h'])),
+				'eval_trn': {k: _to_serializable(v) for k, v in log['eval_perf'].get('eval_trn', {}).items()},
+				'eval_tst': {k: _to_serializable(v) for k, v in log['eval_perf'].get('eval_tst', {}).items()},
+			}
+			_append_jsonl(jsonl_path, log_json)
 			
 			# save model to wandb
 			model_file = os.path.join(wandb.run.dir, "model.pt")
