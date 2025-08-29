@@ -76,7 +76,7 @@ class NASimNetXAtt(Net):
 
     #     return batch, node_index, action_mask
 
-    def forward(self, s_batch, only_v=False, complete=False, force_action=None):
+    def forward(self, s_batch, only_v=False, complete=False, force_action=None, reset_hidden=None):
         data, data_lens, batch, batch_ind, node_index, pos_index = self.prepare_batch(s_batch)
         x = batch.x
 
