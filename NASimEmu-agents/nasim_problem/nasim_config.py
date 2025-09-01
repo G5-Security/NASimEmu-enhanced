@@ -1,4 +1,6 @@
 from nasimemu.env import NASimEmuEnv
+from .nasim_net_feudal import FeudalGTM
+
 
 from .nasim_net_mlp import NASimNetMLP # Multi-layer perceptron
 from .nasim_net_mlp_lstm import NASimNetMLP_LSTM # Multi-layer perceptron + LSTM
@@ -114,7 +116,7 @@ class NASimConfig():
 		
 		argparse.add_argument('-observation_format', type=str, default='list', help="list / graph")
 		argparse.add_argument('-augment_with_action', action='store_const', const=True, help="Include the last action in observation (useful with LSTM)")
-		argparse.add_argument('-net_class', type=str, default='NASimNetMLP', choices=['BaselineAgent', 'NASimNetMLP', 'NASimNetMLP_LSTM', 'NASimNetInv', 'NASimNetInvMAct', 'NASimNetInvMActTrainAT', 'NASimNetInvMActLSTM', 'NASimNetGNN', 'NASimNetGNN_MAct', 'NASimNetGNN_LSTM', 'NASimNetXAtt', 'NASimNetXAttMAct'])
+		argparse.add_argument('-net_class', type=str, default='NASimNetMLP', choices=['BaselineAgent', 'NASimNetMLP', 'NASimNetMLP_LSTM','FeudalGTM', 'NASimNetInv', 'NASimNetInvMAct', 'NASimNetInvMActTrainAT', 'NASimNetInvMActLSTM', 'NASimNetGNN', 'NASimNetGNN_MAct', 'NASimNetGNN_LSTM', 'NASimNetXAtt', 'NASimNetXAttMAct'])
 		
 		argparse.add_argument('-episode_step_limit', type=int, default=200, help="Force termination after number of steps")
 		argparse.add_argument('-use_a_t', action='store_const', const=True, help="Enable agent to terminate the episode")

@@ -78,7 +78,7 @@ python main.py ../scenarios/corp_100hosts_dynamic.v2.yaml \
   -net_class NASimNetGNN_LSTM \
   -force_continue_epochs 150 -use_a_t \
   -episode_step_limit 400 -observation_format graph_v2 \
-  -mp_iterations 2 -augment_with_action
+  -mp_iterations 2 -augment_with_action 
 
 # 5) Attention (Matrix Action)
 python main.py ../scenarios/corp_100hosts_dynamic.v2.yaml \
