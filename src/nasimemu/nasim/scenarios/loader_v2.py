@@ -101,6 +101,7 @@ class ScenarioLoaderV2:
         self._parse_scan_costs()
         self._parse_host_configs()
         self._parse_firewall()
+        self._parse_scan_noise()
         self._parse_hosts()
         self._parse_step_limit()
 
@@ -126,6 +127,7 @@ class ScenarioLoaderV2:
         scenario_dict[u.HOSTS] = self.hosts
         scenario_dict[u.STEP_LIMIT] = self.step_limit
         scenario_dict["address_space_bounds"] = self.address_space_bounds
+        scenario_dict["scan_noise"] = self.scan_noise
 
         return Scenario(
             scenario_dict, name=self.name, generated=False
@@ -613,6 +615,18 @@ class ScenarioLoaderV2:
 
             else:
                 self.firewall[eval(connect)] = v
+
+    def _parse_scan_noise(self):
+        """Parse scan noise configuration from YAML"""
+        if 'scan_noise' in self.yaml_dict:
+            self.scan_noise = self.yaml_dict['scan_noise']
+        else:
+            # Default: no noise
+            self.scan_noise = {
+                'service_scan': {'false_positive_rate': 0.0, 'false_negative_rate': 0.0},
+                'os_scan': {'false_positive_rate': 0.0, 'false_negative_rate': 0.0},
+                'process_scan': {'false_positive_rate': 0.0, 'false_negative_rate': 0.0}
+            }
 
     def _validate_firewall(self, firewall):
         assert self._contains_all_required_firewalls(firewall), \

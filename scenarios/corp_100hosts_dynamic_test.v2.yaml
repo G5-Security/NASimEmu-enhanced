@@ -1,3 +1,4 @@
+
 # Scenario with 100 hosts (TEST VARIANT), v2 format with adjusted service probabilities
 
 subnets: [6-8, 6-8, 6-8, 6-8, 6-8, 6-8, 6-8, 6-8, 6-8, 6-8, 6-8, 6-8]
@@ -245,4 +246,16 @@ subnet_scan_cost: 3
 process_scan_cost: 2
 
 host_configurations: _random
-firewall: _subnets 
+firewall: _subnets
+
+# Scan noise configuration for realism (test variant with higher noise)
+scan_noise:
+  service_scan:
+    false_positive_rate: 0.08  # 8% chance of showing non-existent service
+    false_negative_rate: 0.15  # 15% chance of missing real service
+  os_scan:
+    false_positive_rate: 0.03
+    false_negative_rate: 0.08
+  process_scan:
+    false_positive_rate: 0.12
+    false_negative_rate: 0.20 

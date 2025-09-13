@@ -394,6 +394,11 @@ class NASimEmuEnv(gym.Env):
         else:
             self.env = NASimEnv(scenario, fully_obs=self.fully_obs, flat_actions=False, flat_obs=False)
 
+        # Initialize scan noise configuration
+        if hasattr(scenario, 'scan_noise'):
+            from nasimemu.nasim.envs.host_vector import HostVector
+            HostVector.set_scan_noise(scenario.scan_noise)
+
         if not self.fully_obs:
             self.env_po_wrapper = PartiallyObservableWrapper()
 

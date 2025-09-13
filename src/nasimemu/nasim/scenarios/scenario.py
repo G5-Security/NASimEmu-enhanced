@@ -266,6 +266,15 @@ class Scenario:
             max_value = max(max_value, host.discovery_value)
         return (min_value, max_value)
 
+    @property
+    def scan_noise(self):
+        """Scan noise configuration for realism"""
+        return self.scenario_dict.get('scan_noise', {
+            'service_scan': {'false_positive_rate': 0.0, 'false_negative_rate': 0.0},
+            'os_scan': {'false_positive_rate': 0.0, 'false_negative_rate': 0.0},
+            'process_scan': {'false_positive_rate': 0.0, 'false_negative_rate': 0.0}
+        })
+
     def display(self):
         pprint(self.scenario_dict)
 

@@ -64,6 +64,13 @@ class HostVector:
     process_idx_map = {}
     # size of state for host vector (i.e. len of vector)
     state_size = None
+    
+    # scan noise configuration
+    scan_noise = {
+        'service_scan': {'false_positive_rate': 0.0, 'false_negative_rate': 0.0},
+        'os_scan': {'false_positive_rate': 0.0, 'false_negative_rate': 0.0},
+        'process_scan': {'false_positive_rate': 0.0, 'false_negative_rate': 0.0}
+    }
 
     # vector position constants
     # to be initialized
@@ -208,6 +215,26 @@ class HostVector:
         proc_num = self.process_idx_map[proc]
         return bool(self.vector[self._get_process_idx(proc_num)])
 
+    @classmethod
+    def set_scan_noise(cls, noise_config):
+        """Set scan noise configuration from scenario"""
+        cls.scan_noise = noise_config
+    
+    def _apply_scan_noise(self, mapping, scan_type):
+        """Apply noise to scan results"""
+        noise_config = self.scan_noise.get(scan_type, {})
+        fp_rate = noise_config.get('false_positive_rate', 0.0)
+        fn_rate = noise_config.get('false_negative_rate', 0.0)
+        
+        noisy = dict(mapping)  # copy
+        for k, v in noisy.items():
+            r = np.random.rand()
+            if v and r < fn_rate:
+                noisy[k] = False  # false negative
+            elif (not v) and r < fp_rate:
+                noisy[k] = True   # false positive
+        return noisy
+
     def perform_action(self, action):
         """Perform given action against this host
 
@@ -225,11 +252,13 @@ class HostVector:
         """
         next_state = self.copy()
         if action.is_service_scan():
-            result = ActionResult(True, 0, services=self.services)
+            noisy_services = self._apply_scan_noise(self.services, 'service_scan')
+            result = ActionResult(True, 0, services=noisy_services)
             return next_state, result
 
         if action.is_os_scan():
-            return next_state, ActionResult(True, 0, os=self.os)
+            noisy_os = self._apply_scan_noise(self.os, 'os_scan')
+            return next_state, ActionResult(True, 0, os=noisy_os)
 
         if action.is_exploit():
             if self.is_running_service(action.service) and \
@@ -259,8 +288,9 @@ class HostVector:
             return next_state, result
 
         if action.is_process_scan():
+            noisy_processes = self._apply_scan_noise(self.processes, 'process_scan')
             result = ActionResult(
-                True, 0, access=self.access, processes=self.processes
+                True, 0, access=self.access, processes=noisy_processes
             )
             return next_state, result
 
