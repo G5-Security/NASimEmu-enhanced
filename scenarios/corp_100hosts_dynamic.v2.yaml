@@ -257,14 +257,48 @@ host_configurations: _random
 # Allow all inter-subnet communications along topology
 firewall: _subnets
 
-# Scan noise configuration for realism
+
+# Bridge scan noise configuration (middle values between train and test)
 scan_noise:
   service_scan:
-    false_positive_rate: 0.05  # 5% chance of showing non-existent service
-    false_negative_rate: 0.10  # 10% chance of missing real service
+    false_positive_rate: 0.065  # 0.05(train) -> 0.065(bridge) -> 0.08(test)
+    false_negative_rate: 0.125  # 0.10(train) -> 0.125(bridge) -> 0.15(test)
   os_scan:
-    false_positive_rate: 0.02
-    false_negative_rate: 0.05
+    false_positive_rate: 0.025  # 0.02(train) -> 0.025(bridge) -> 0.03(test)
+    false_negative_rate: 0.065  # 0.05(train) -> 0.065(bridge) -> 0.08(test)
   process_scan:
-    false_positive_rate: 0.08
-    false_negative_rate: 0.15 
+    false_positive_rate: 0.10   # 0.08(train) -> 0.10(bridge) -> 0.12(test)
+    false_negative_rate: 0.175  # 0.15(train) -> 0.175(bridge) -> 0.20(test)
+# Service dynamics configuration for realistic service churn
+# Service dynamics configuration for realistic service churn
+service_dynamics:
+  churn_probability: 0.02  # 2% chance per step per service
+  affected_services: ["80_linux_joomla", "8080_linux_tomcat_mgr", "8081_linux_jenkins", "80_linux_moodle", "80_linux_mediawiki", "8080_windows_iis", "80_windows_iis", "3306_any_mysql", "5432_linux_postgres", "27017_linux_mongodb"]
+  restart_delay: 10  # Steps before service comes back up
+  churn_types:
+    - type: "crash_restart"
+      probability: 0.7
+      down_duration: [5, 15]  # Random between 5-15 steps
+    - type: "maintenance"
+      probability: 0.2
+      down_duration: [20, 40]
+    - type: "permanent_down"
+      probability: 0.1
+      down_duration: [100, 200]
+
+# Network reliability configuration for realistic packet loss and timeouts
+network_reliability:
+  timeout_probability: 0.03  # 3% chance of timeout
+  affected_actions: ["exploit", "privilege_escalation"]
+  retry_cost: 0  # No extra cost for retry
+  timeout_types:
+    - type: "packet_loss"
+      probability: 0.6
+      duration: 1  # Single step timeout
+    - type: "network_congestion"
+      probability: 0.3
+      duration: [2, 5]  # 2-5 step timeout
+    - type: "routing_issue"
+      probability: 0.1
+      duration: [5, 10]  # 5-10 step timeout
+

@@ -1,4 +1,5 @@
-# Scenario with 100 hosts (VAR A), v2 format; mimics test but not identical
+# Bridge scenario - middle ground between training and test templates
+# Designed to help with generalization by providing intermediate values
 
 subnets: [6-8, 6-8, 6-8, 6-8, 6-8, 6-8, 6-8, 6-8, 6-8, 6-8, 6-8, 6-8]
 address_space_bounds: (13, 10)
@@ -29,19 +30,20 @@ subnet_labels:
   11: research
   12: backups
 
+# Bridge sensitive host distribution (middle values between train and test)
 sensitive_hosts:
-  1: 0.0  # DMZ
-  2: 0.0  # user
-  3: 0.3  # service
-  4: 0.6  # db
-  5: 0.1  # dev
-  6: 0.2  # app
-  7: 0.2  # app2
-  8: 0.4  # app3
-  9: 0.7  # web
-  10: 0.1 # office
-  11: 0.8 # research
-  12: 0.9 # backups
+  1: 0.0  # DMZ (same in both)
+  2: 0.0  # user (same in both)
+  3: 0.4  # service: 0.6(train) -> 0.4(bridge) -> 0.2(test)
+  4: 0.5  # db: 1.0(train) -> 0.5(bridge) -> 0.0(test)
+  5: 0.1  # dev: 0.2(train) -> 0.1(bridge) -> 0.0(test)
+  6: 0.2  # app: 0.3(train) -> 0.2(bridge) -> 0.1(test)
+  7: 0.15 # app2: 0.3(train) -> 0.15(bridge) -> 0.0(test)
+  8: 0.35 # app3: 0.4(train) -> 0.35(bridge) -> 0.3(test)
+  9: 0.65 # web: 0.5(train) -> 0.65(bridge) -> 0.8(test)
+  10: 0.1 # office: 0.2(train) -> 0.1(bridge) -> 0.0(test)
+  11: 0.7 # research: 0.5(train) -> 0.7(bridge) -> 0.9(test)
+  12: 0.9 # backups: 0.8(train) -> 0.9(bridge) -> 1.0(test)
 
 os:
   - linux
@@ -82,9 +84,9 @@ services:
   - 80_windows_iis
 
 sensitive_services:
-  - 22_linux_ssh
-  - 1433_windows_mssql
+  - 3306_any_mysql
   - 5432_linux_postgres
+  - 1433_windows_mssql
 
 processes:
   - p_linux_polkit_pkexec
@@ -101,150 +103,155 @@ processes:
   - p_windows_dll_hijack
   - p_windows_vuln_driver
 
+# Bridge service probabilities (middle values between train and test)
 service_probabilities:
-  22_linux_ssh: 0.85
+  22_linux_ssh: 0.9
   23_linux_telnet: 0.1
-  21_linux_vsftpd: 0.7
-  25_linux_smtp_exim: 0.7
-  389_linux_ldap: 0.75
-  2049_linux_nfs: 0.7
-  445_linux_samba: 0.8
-  5432_linux_postgres: 0.85
-  27017_linux_mongodb: 0.6
-  6379_linux_redis: 0.6
-  11211_linux_memcached: 0.6
-  5601_linux_kibana: 0.15
+  21_linux_vsftpd: 0.725  # 0.85(train) -> 0.725(bridge) -> 0.6(test)
+  25_linux_smtp_exim: 0.725
+  389_linux_ldap: 0.725
+  2049_linux_nfs: 0.725
+  445_linux_samba: 0.9
+  5432_linux_postgres: 0.9
+  27017_linux_mongodb: 0.675  # 0.85(train) -> 0.675(bridge) -> 0.5(test)
+  6379_linux_redis: 0.675
+  11211_linux_memcached: 0.675
+  5601_linux_kibana: 0.15  # 0.2(train) -> 0.15(bridge) -> 0.1(test)
   3000_linux_grafana: 0.15
-  8080_linux_tomcat_mgr: 0.7
-  8081_linux_jenkins: 0.15
-  8161_linux_activemq: 0.1
-  5900_linux_vnc: 0.7
+  8080_linux_tomcat_mgr: 0.725  # 0.85(train) -> 0.725(bridge) -> 0.6(test)
+  8081_linux_jenkins: 0.15  # 0.2(train) -> 0.15(bridge) -> 0.1(test)
+  8161_linux_activemq: 0.15
+  5900_linux_vnc: 0.725
   69_linux_tftp: 0.1
-  53_linux_dns_bind: 0.85
-  80_linux_joomla: 0.6
+  53_linux_dns_bind: 0.9
+  80_linux_joomla: 0.725
   80_linux_moodle: 0.15
-  80_linux_mediawiki: 0.6
-  80_linux_phpmyadmin: 0.6
-  3306_any_mysql: 0.85
-  445_windows_smb: 0.85
-  3389_windows_rdp: 0.6
-  5985_windows_winrm: 0.6
-  135_windows_msrpc: 0.6
-  88_windows_kerberos: 0.6
-  389_windows_ldap_ad: 0.6
-  1433_windows_mssql: 0.85
-  80_windows_iis: 0.1
+  80_linux_mediawiki: 0.725
+  80_linux_phpmyadmin: 0.725
+  3306_any_mysql: 0.9
+  445_windows_smb: 0.9
+  3389_windows_rdp: 0.725
+  5985_windows_winrm: 0.725
+  135_windows_msrpc: 0.725
+  88_windows_kerberos: 0.725
+  389_windows_ldap_ad: 0.725
+  1433_windows_mssql: 0.9
+  80_windows_iis: 0.15
 
+# Bridge process probabilities (middle values between train and test)
 process_probabilities:
-  p_linux_polkit_pkexec: 0.5
-  p_linux_sudo_misconfig: 0.4
-  p_linux_suid_bin: 0.15
-  p_linux_cron_root: 0.2
-  p_linux_docker_sock: 0.15
+  p_linux_polkit_pkexec: 0.5  # 0.8(train) -> 0.5(bridge) -> 0.2(test)
+  p_linux_sudo_misconfig: 0.425  # 0.7(train) -> 0.425(bridge) -> 0.15(test)
+  p_linux_suid_bin: 0.15  # 0.2(train) -> 0.15(bridge) -> 0.1(test)
+  p_linux_cron_root: 0.2  # 0.25(train) -> 0.2(bridge) -> 0.15(test)
+  p_linux_docker_sock: 0.125  # 0.15(train) -> 0.125(bridge) -> 0.1(test)
   p_linux_kernel_dirty_pipe: 0.1
-  p_windows_spooler: 0.7
-  p_windows_unquoted_service_path: 0.6
-  p_windows_weak_service_perms: 0.3
-  p_windows_se_impersonate: 0.25
-  p_windows_uac_bypass: 0.2
-  p_windows_dll_hijack: 0.15
+  p_windows_spooler: 0.85  # 0.8(train) -> 0.85(bridge) -> 0.9(test)
+  p_windows_unquoted_service_path: 0.75  # 0.7(train) -> 0.75(bridge) -> 0.8(test)
+  p_windows_weak_service_perms: 0.35  # 0.2(train) -> 0.35(bridge) -> 0.5(test)
+  p_windows_se_impersonate: 0.275  # 0.15(train) -> 0.275(bridge) -> 0.4(test)
+  p_windows_uac_bypass: 0.225  # 0.15(train) -> 0.225(bridge) -> 0.3(test)
+  p_windows_dll_hijack: 0.15  # 0.1(train) -> 0.15(bridge) -> 0.2(test)
   p_windows_vuln_driver: 0.15
 
+# Bridge exploit configurations (middle values between train and test)
 exploits:
   e_vsftpd:
     service: 21_linux_vsftpd
     os: linux
-    prob: 0.7
-    cost: 2
+    prob: 0.75  # 0.9(train) -> 0.75(bridge) -> 0.6(test)
+    cost: 1.5   # 1(train) -> 1.5(bridge) -> 2(test)
     access: user
   e_tomcat_mgr:
     service: 8080_linux_tomcat_mgr
     os: linux
-    prob: 0.65
-    cost: 2
+    prob: 0.65  # 0.8(train) -> 0.65(bridge) -> 0.5(test)
+    cost: 2.5   # 2(train) -> 2.5(bridge) -> 3(test)
     access: user
   e_jenkins:
     service: 8081_linux_jenkins
     os: linux
-    prob: 0.5
-    cost: 3
+    prob: 0.55  # 0.7(train) -> 0.55(bridge) -> 0.4(test)
+    cost: 2.5   # 2(train) -> 2.5(bridge) -> 3(test)
     access: user
   e_smb_win:
     service: 445_windows_smb
     os: windows
-    prob: 0.6
-    cost: 3
+    prob: 0.65  # 0.8(train) -> 0.65(bridge) -> 0.5(test)
+    cost: 2.5   # 2(train) -> 2.5(bridge) -> 3(test)
     access: user
   e_rdp:
     service: 3389_windows_rdp
     os: windows
-    prob: 0.5
-    cost: 3
+    prob: 0.5   # 0.6(train) -> 0.5(bridge) -> 0.4(test)
+    cost: 2.5   # 2(train) -> 2.5(bridge) -> 3(test)
     access: user
   e_mysql:
     service: 3306_any_mysql
     os: none
-    prob: 0.8
-    cost: 2
-    access: user
+    prob: 0.85  # 1.0(train) -> 0.85(bridge) -> 0.7(test)
+    cost: 2.0   # 1(train) -> 2.0(bridge) -> 3(test)
+    access: root
   e_mssql:
     service: 1433_windows_mssql
     os: windows
-    prob: 0.6
-    cost: 3
+    prob: 0.65  # 0.8(train) -> 0.65(bridge) -> 0.5(test)
+    cost: 2.5   # 2(train) -> 2.5(bridge) -> 3(test)
     access: user
   e_postgres:
     service: 5432_linux_postgres
     os: linux
-    prob: 0.7
-    cost: 2
+    prob: 0.725 # 0.85(train) -> 0.725(bridge) -> 0.6(test)
+    cost: 2.5   # 2(train) -> 2.5(bridge) -> 3(test)
     access: user
 
+# Bridge privilege escalation (middle values between train and test)
 privilege_escalation:
   pe_polkit:
     process: p_linux_polkit_pkexec
     os: linux
-    prob: 0.7
+    prob: 0.8
     cost: 1
     access: root
   pe_polkit_any:
     process: p_linux_polkit_pkexec
     os: none
-    prob: 0.6
+    prob: 0.7
     cost: 1
     access: root
   pe_sudo:
     process: p_linux_sudo_misconfig
     os: linux
-    prob: 0.6
+    prob: 0.7
     cost: 1
     access: root
   pe_sudo_any:
     process: p_linux_sudo_misconfig
     os: none
-    prob: 0.5
+    prob: 0.6
     cost: 1
     access: root
   pe_spooler:
     process: p_windows_spooler
     os: windows
-    prob: 0.7
+    prob: 0.8
     cost: 1
     access: root
   pe_unquoted:
     process: p_windows_unquoted_service_path
     os: windows
-    prob: 0.6
+    prob: 0.7
     cost: 1
     access: root
 
-service_scan_cost: 2
+# Bridge scan costs (middle values between train and test)
+service_scan_cost: 1.5  # 1(train) -> 1.5(bridge) -> 2(test)
 os_scan_cost: 1
-subnet_scan_cost: 2
-process_scan_cost: 2
+subnet_scan_cost: 2.0   # 1(train) -> 2.0(bridge) -> 3(test)
+process_scan_cost: 1.5  # 1(train) -> 1.5(bridge) -> 2(test)
 
 host_configurations: _random
-firewall: _subnets 
+firewall: _subnets
 
 # Bridge scan noise configuration (middle values between train and test)
 scan_noise:
@@ -257,7 +264,6 @@ scan_noise:
   process_scan:
     false_positive_rate: 0.10   # 0.08(train) -> 0.10(bridge) -> 0.12(test)
     false_negative_rate: 0.175  # 0.15(train) -> 0.175(bridge) -> 0.20(test)
-# Service dynamics configuration for realistic service churn
 # Service dynamics configuration for realistic service churn
 service_dynamics:
   churn_probability: 0.02  # 2% chance per step per service
