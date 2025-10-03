@@ -71,6 +71,20 @@ class HostVector:
         'os_scan': {'false_positive_rate': 0.0, 'false_negative_rate': 0.0},
         'process_scan': {'false_positive_rate': 0.0, 'false_negative_rate': 0.0}
     }
+    
+    # service dynamics configuration
+    churn_config = {
+        'churn_probability': 0.0,
+        'affected_services': [],
+        'restart_delay': 10,
+        'churn_types': [
+            {
+                'type': 'crash_restart',
+                'probability': 1.0,
+                'down_duration': [5, 15]
+            }
+        ]
+    }
 
     # vector position constants
     # to be initialized
@@ -88,6 +102,8 @@ class HostVector:
 
     def __init__(self, vector):
         self.vector = vector
+        # Add service state tracking for churn
+        self.service_states = {}  # service_name -> {'status': 'up'/'down', 'down_until': step}
 
     @classmethod
     def vectorize(cls, host, address_space_bounds, vector=None):
@@ -219,6 +235,11 @@ class HostVector:
     def set_scan_noise(cls, noise_config):
         """Set scan noise configuration from scenario"""
         cls.scan_noise = noise_config
+
+    @classmethod
+    def set_churn_config(cls, config):
+        """Set service churn configuration"""
+        cls.churn_config = config
     
     def _apply_scan_noise(self, mapping, scan_type):
         """Apply noise to scan results"""
@@ -234,6 +255,66 @@ class HostVector:
             elif (not v) and r < fp_rate:
                 noisy[k] = True   # false positive
         return noisy
+
+    def update_service_churn(self, current_step):
+        """Update service states based on churn probability"""
+        if not self.churn_config or self.churn_config.get('churn_probability', 0.0) == 0.0:
+            return
+        
+        churn_prob = self.churn_config.get('churn_probability', 0.0)
+        affected_services = self.churn_config.get('affected_services', [])
+        
+        for service in affected_services:
+            if service not in self.service_idx_map:
+                continue
+            
+            # Check if service should go down
+            if (self.is_running_service(service) and  # service is currently up
+                np.random.rand() < churn_prob):
+                self._service_goes_down(service, current_step)
+            
+            # Check if service should come back up
+            if (service in self.service_states and
+                self.service_states[service]['status'] == 'down' and
+                current_step >= self.service_states[service]['down_until']):
+                self._service_comes_up(service)
+    
+    def _service_goes_down(self, service, current_step):
+        """Mark service as down"""
+        churn_types = self.churn_config.get('churn_types', [])
+        if not churn_types:
+            # Default: simple restart
+            down_duration = self.churn_config.get('restart_delay', 10)
+        else:
+            # Choose churn type based on probabilities
+            rand = np.random.rand()
+            cum_prob = 0
+            down_duration = 10  # default
+            for churn_type in churn_types:
+                cum_prob += churn_type['probability']
+                if rand < cum_prob:
+                    duration_range = churn_type['down_duration']
+                    if isinstance(duration_range, list):
+                        down_duration = np.random.randint(duration_range[0], duration_range[1] + 1)
+                    else:
+                        down_duration = duration_range
+                    break
+        
+        self.service_states[service] = {
+            'status': 'down',
+            'down_until': current_step + down_duration
+        }
+        # Update the actual service state in the vector
+        srv_num = self.service_idx_map[service]
+        self.vector[self._get_service_idx(srv_num)] = 0.0
+    
+    def _service_comes_up(self, service):
+        """Mark service as up"""
+        if service in self.service_states:
+            del self.service_states[service]
+        # Update the actual service state in the vector
+        srv_num = self.service_idx_map[service]
+        self.vector[self._get_service_idx(srv_num)] = 1.0
 
     def perform_action(self, action):
         """Perform given action against this host

@@ -275,6 +275,38 @@ class Scenario:
             'process_scan': {'false_positive_rate': 0.0, 'false_negative_rate': 0.0}
         })
 
+    @property
+    def service_dynamics(self):
+        """Service dynamics configuration for realistic service churn"""
+        return self.scenario_dict.get('service_dynamics', {
+            'churn_probability': 0.0,
+            'affected_services': [],
+            'restart_delay': 10,
+            'churn_types': [
+                {
+                    'type': 'crash_restart',
+                    'probability': 1.0,
+                    'down_duration': [5, 15]
+                }
+            ]
+        })
+
+    @property
+    def network_reliability(self):
+        """Network reliability configuration for realistic timeouts"""
+        return self.scenario_dict.get('network_reliability', {
+            'timeout_probability': 0.0,
+            'affected_actions': [],
+            'retry_cost': 0,
+            'timeout_types': [
+                {
+                    'type': 'packet_loss',
+                    'probability': 1.0,
+                    'duration': 1
+                }
+            ]
+        })
+
     def display(self):
         pprint(self.scenario_dict)
 

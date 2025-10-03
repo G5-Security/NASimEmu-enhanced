@@ -193,9 +193,16 @@ class NASimEnv(gym.Env):
         if not isinstance(action, Action):
             action = self.action_space.get_action(action)
 
+        # Update network step counter for timeout tracking
+        self.network.set_current_step(self.steps)
+
         next_state, action_obs = self.network.perform_action(
             state, action
         )
+        
+        # Apply service churn to all hosts
+        self._apply_service_churn(next_state)
+        
         obs = next_state.get_observation(
             action, action_obs, self.fully_obs
         )
@@ -400,6 +407,12 @@ class NASimEnv(gym.Env):
         max_reward += self.network.get_total_discovery_value()
         max_reward -= self.network.get_minimal_steps()
         return max_reward
+
+    def _apply_service_churn(self, state):
+        """Apply service churn to all hosts in state"""
+        for host_addr in self.network.address_space:
+            host = state.get_host(host_addr)
+            host.update_service_churn(self.steps)
 
     def goal_reached(self, state=None):
         """Check if the state is the goal state.

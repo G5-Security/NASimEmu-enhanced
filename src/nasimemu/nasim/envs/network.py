@@ -21,6 +21,11 @@ class Network:
         self.address_space_bounds = scenario.address_space_bounds
         self.sensitive_addresses = scenario.sensitive_addresses
         self.sensitive_hosts = scenario.sensitive_hosts
+        
+        # Network reliability and timeout tracking
+        self.timeout_config = getattr(scenario, 'network_reliability', None)
+        self.active_timeouts = {}  # (src, dest, action_type) -> {'until': step, 'type': 'timeout_type'}
+        self.current_step = 0
 
     def reset(self, state):
         """Reset the network state to initial state """
@@ -84,6 +89,14 @@ class Network:
         if action.is_process_scan() and not host_compromised:    # processes can only be scanned if the user has a local access
             result = ActionResult(False, 0.0, connection_error=True)
             return next_state, result
+
+        # Check for network timeout before action execution
+        if action.is_remote():
+            src_subnet = self._get_source_subnet(state, action)
+            action_type = action.__class__.__name__.lower().replace('action', '')
+            if self.check_network_timeout(src_subnet, action.target[0], action_type):
+                result = ActionResult(False, 0.0, connection_error=True)
+                return next_state, result
 
         if action.is_exploit() and host_compromised:
             # host already compromised so exploits don't fail due to randomness
@@ -236,6 +249,77 @@ class Network:
 
     def get_subnet_depths(self):
         return min_subnet_depth(self.topology)
+
+    def set_current_step(self, step):
+        """Update current step for timeout tracking"""
+        self.current_step = step
+
+    def check_network_timeout(self, src_subnet, dest_subnet, action_type):
+        """Check if action should timeout due to network issues"""
+        if not self.timeout_config:
+            return False
+        
+        timeout_prob = self.timeout_config.get('timeout_probability', 0.0)
+        affected_actions = self.timeout_config.get('affected_actions', [])
+        
+        if action_type not in affected_actions:
+            return False
+        
+        # Check if there's an active timeout
+        timeout_key = (src_subnet, dest_subnet, action_type)
+        if timeout_key in self.active_timeouts:
+            timeout_info = self.active_timeouts[timeout_key]
+            if self.current_step < timeout_info['until']:
+                return True  # Still in timeout
+            else:
+                # Timeout expired
+                del self.active_timeouts[timeout_key]
+        
+        # Check for new timeout
+        if np.random.rand() < timeout_prob:
+            self._create_timeout(timeout_key)
+            return True
+        
+        return False
+    
+    def _create_timeout(self, timeout_key):
+        """Create a new network timeout"""
+        timeout_types = self.timeout_config.get('timeout_types', [])
+        if not timeout_types:
+            # Default: single step timeout
+            duration = 1
+        else:
+            # Choose timeout type based on probabilities
+            rand = np.random.rand()
+            cum_prob = 0
+            duration = 1  # default
+            for timeout_type in timeout_types:
+                cum_prob += timeout_type['probability']
+                if rand < cum_prob:
+                    duration = timeout_type['duration']
+                    if isinstance(duration, list):
+                        duration = np.random.randint(duration[0], duration[1] + 1)
+                    break
+        
+        self.active_timeouts[timeout_key] = {
+            'until': self.current_step + duration,
+            'type': 'network_timeout'
+        }
+
+    def _get_source_subnet(self, state, action):
+        """Get the source subnet for a remote action"""
+        if action.is_remote():
+            # For remote actions, find a compromised host that can reach the target
+            for host_addr in self.address_space:
+                host = state.get_host(host_addr)
+                if (host.compromised and 
+                    self.traffic_permitted(state, action.target, getattr(action, 'service', None))):
+                    return host_addr[0]
+            # Fallback to internet subnet
+            return 0
+        else:
+            # For local actions, source is the target itself
+            return action.target[0]
 
     def __str__(self):
         output = "\n--- Network ---\n"

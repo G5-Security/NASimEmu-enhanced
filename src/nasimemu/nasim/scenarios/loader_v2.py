@@ -102,6 +102,8 @@ class ScenarioLoaderV2:
         self._parse_host_configs()
         self._parse_firewall()
         self._parse_scan_noise()
+        self._parse_service_dynamics()
+        self._parse_network_reliability()
         self._parse_hosts()
         self._parse_step_limit()
 
@@ -128,6 +130,8 @@ class ScenarioLoaderV2:
         scenario_dict[u.STEP_LIMIT] = self.step_limit
         scenario_dict["address_space_bounds"] = self.address_space_bounds
         scenario_dict["scan_noise"] = self.scan_noise
+        scenario_dict["service_dynamics"] = self.service_dynamics
+        scenario_dict["network_reliability"] = self.network_reliability
 
         return Scenario(
             scenario_dict, name=self.name, generated=False
@@ -626,6 +630,44 @@ class ScenarioLoaderV2:
                 'service_scan': {'false_positive_rate': 0.0, 'false_negative_rate': 0.0},
                 'os_scan': {'false_positive_rate': 0.0, 'false_negative_rate': 0.0},
                 'process_scan': {'false_positive_rate': 0.0, 'false_negative_rate': 0.0}
+            }
+
+    def _parse_service_dynamics(self):
+        """Parse service dynamics configuration from YAML"""
+        if 'service_dynamics' in self.yaml_dict:
+            self.service_dynamics = self.yaml_dict['service_dynamics']
+        else:
+            # Default: no service churn
+            self.service_dynamics = {
+                'churn_probability': 0.0,
+                'affected_services': [],
+                'restart_delay': 10,
+                'churn_types': [
+                    {
+                        'type': 'crash_restart',
+                        'probability': 1.0,
+                        'down_duration': [5, 15]
+                    }
+                ]
+            }
+
+    def _parse_network_reliability(self):
+        """Parse network reliability configuration from YAML"""
+        if 'network_reliability' in self.yaml_dict:
+            self.network_reliability = self.yaml_dict['network_reliability']
+        else:
+            # Default: no network timeouts
+            self.network_reliability = {
+                'timeout_probability': 0.0,
+                'affected_actions': [],
+                'retry_cost': 0,
+                'timeout_types': [
+                    {
+                        'type': 'packet_loss',
+                        'probability': 1.0,
+                        'duration': 1
+                    }
+                ]
             }
 
     def _validate_firewall(self, firewall):

@@ -244,6 +244,9 @@ class NASimEmuEnv(gym.Env):
                 'sensitive_services': yaml.get('sensitive_services', []),
                 'sensitive_hosts_probs': yaml.get('sensitive_hosts', {}),
                 'step_limit': self.step_limit,
+                'scan_noise': yaml.get('scan_noise', {}),
+                'service_dynamics': yaml.get('service_dynamics', {}),
+                'network_reliability': yaml.get('network_reliability', {}),
             }
 
         T = self._auto_cache
@@ -331,6 +334,13 @@ class NASimEmuEnv(gym.Env):
         }
         if T['address_space_bounds'] is not None:
             scenario_dict['address_space_bounds'] = T['address_space_bounds']
+        # Add realism configurations from template
+        if T['scan_noise']:
+            scenario_dict['scan_noise'] = T['scan_noise']
+        if T['service_dynamics']:
+            scenario_dict['service_dynamics'] = T['service_dynamics']
+        if T['network_reliability']:
+            scenario_dict['network_reliability'] = T['network_reliability']
         sc = Scenario(scenario_dict, name='auto_from_template', generated=True)
         return sc
 
@@ -398,6 +408,15 @@ class NASimEmuEnv(gym.Env):
         if hasattr(scenario, 'scan_noise'):
             from nasimemu.nasim.envs.host_vector import HostVector
             HostVector.set_scan_noise(scenario.scan_noise)
+
+        # Initialize service dynamics configuration
+        if hasattr(scenario, 'service_dynamics'):
+            from nasimemu.nasim.envs.host_vector import HostVector
+            HostVector.set_churn_config(scenario.service_dynamics)
+
+        # Initialize network reliability configuration
+        if hasattr(scenario, 'network_reliability'):
+            self.env.network.timeout_config = scenario.network_reliability
 
         if not self.fully_obs:
             self.env_po_wrapper = PartiallyObservableWrapper()
