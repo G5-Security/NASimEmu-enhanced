@@ -85,6 +85,29 @@ class HostVector:
             }
         ]
     }
+    
+    # IDS (Intrusion Detection System) configuration
+    ids_config = {
+        'enabled': False,
+        'detection_decay': 0.98,
+        'base_thresholds': [0.7, 0.8],
+        'response_types': {
+            'quarantine': 0.2,
+            'patch': 0.4,
+            'monitor': 0.4
+        },
+        'failed_exploit_multiplier': 3.0,
+        'detection_increase': {
+            'subnet_scan': 0.02,
+            'service_scan': 0.05,
+            'os_scan': 0.03,
+            'process_scan': 0.03,
+            'exploit_failed': 0.15,
+            'exploit_success': 0.08,
+            'privesc_failed': 0.20,
+            'privesc_success': 0.10,
+        }
+    }
 
     # vector position constants
     # to be initialized
@@ -104,6 +127,16 @@ class HostVector:
         self.vector = vector
         # Add service state tracking for churn
         self.service_states = {}  # service_name -> {'status': 'up'/'down', 'down_until': step}
+        
+        # IDS tracking (instance variables, not in vector for now)
+        self.detection_level = 0.0  # 0.0 = undetected, 1.0 = fully detected
+        self.last_scan_time = -1000  # Steps since last scan
+        self.failed_exploit_count = 0
+        # Random threshold for when detection triggers alert
+        threshold_range = self.ids_config.get('base_thresholds', [0.7, 0.8])
+        self.detection_threshold = np.random.uniform(threshold_range[0], threshold_range[1])
+        self.patched_services = set()  # Services that have been patched after detection
+        self.detection_multiplier = 1.0  # Increased monitoring after minor detection
 
     @classmethod
     def vectorize(cls, host, address_space_bounds, vector=None):
@@ -241,6 +274,11 @@ class HostVector:
         """Set service churn configuration"""
         cls.churn_config = config
     
+    @classmethod
+    def set_ids_config(cls, config):
+        """Set IDS configuration from scenario"""
+        cls.ids_config = config
+    
     def _apply_scan_noise(self, mapping, scan_type):
         """Apply noise to scan results"""
         noise_config = self.scan_noise.get(scan_type, {})
@@ -316,6 +354,144 @@ class HostVector:
         srv_num = self.service_idx_map[service]
         self.vector[self._get_service_idx(srv_num)] = 1.0
 
+    def update_detection(self, action, success, current_step):
+        """Update IDS detection level based on action
+        
+        Arguments
+        ---------
+        action : Action
+            the action that was performed
+        success : bool
+            whether the action was successful
+        current_step : int
+            current environment step number
+            
+        Returns
+        -------
+        tuple (str, dict or None)
+            ('DETECTED', detection_response) if detected, ('SAFE', None) otherwise
+        """
+        if not self.ids_config.get('enabled', False):
+            return 'SAFE', None
+        
+        detection_increase_map = self.ids_config.get('detection_increase', {})
+        
+        # Determine action type and base detection increase
+        increase = 0.0
+        
+        if action.is_scan():
+            if action.is_subnet_scan():
+                increase = detection_increase_map.get('subnet_scan', 0.02)
+            elif action.is_service_scan():
+                increase = detection_increase_map.get('service_scan', 0.05)
+                # Rapid scanning is more suspicious
+                time_since_last = current_step - self.last_scan_time
+                if time_since_last < 5:
+                    increase *= 2.0
+                self.last_scan_time = current_step
+            elif action.is_os_scan():
+                increase = detection_increase_map.get('os_scan', 0.03)
+                time_since_last = current_step - self.last_scan_time
+                if time_since_last < 5:
+                    increase *= 2.0
+                self.last_scan_time = current_step
+            elif action.is_process_scan():
+                increase = detection_increase_map.get('process_scan', 0.03)
+                time_since_last = current_step - self.last_scan_time
+                if time_since_last < 5:
+                    increase *= 2.0
+                self.last_scan_time = current_step
+        elif action.is_exploit():
+            if not success:
+                # Failed exploits are VERY noisy
+                self.failed_exploit_count += 1
+                increase = detection_increase_map.get('exploit_failed', 0.15)
+                # Multiple failed attempts trigger IDS faster
+                multiplier = self.ids_config.get('failed_exploit_multiplier', 3.0)
+                increase *= (1 + 0.3 * self.failed_exploit_count * multiplier)
+            else:
+                increase = detection_increase_map.get('exploit_success', 0.08)
+        elif action.is_privilege_escalation():
+            if not success:
+                increase = detection_increase_map.get('privesc_failed', 0.20)
+                self.failed_exploit_count += 1
+            else:
+                increase = detection_increase_map.get('privesc_success', 0.10)
+        
+        # Apply detection multiplier from previous monitoring
+        increase *= self.detection_multiplier
+        
+        # Update detection level
+        self.detection_level += increase
+        
+        # Natural decay (IDS logs rotate, alerts fade)
+        decay_rate = self.ids_config.get('detection_decay', 0.98)
+        self.detection_level *= decay_rate
+        
+        # Check if host triggers alert
+        if self.detection_level > self.detection_threshold:
+            return 'DETECTED', self._handle_detection()
+        
+        return 'SAFE', None
+    
+    def _handle_detection(self):
+        """Handle what happens when IDS detects intrusion
+        
+        Returns
+        -------
+        dict
+            Dictionary containing detection response information
+        """
+        response_types = self.ids_config.get('response_types', {
+            'quarantine': 0.2,
+            'patch': 0.4,
+            'monitor': 0.4
+        })
+        
+        response_roll = np.random.random()
+        
+        # Determine response based on probabilities
+        quarantine_prob = response_types.get('quarantine', 0.2)
+        patch_prob = response_types.get('patch', 0.4)
+        
+        if response_roll < quarantine_prob:
+            # Severe: Host quarantined, all access lost
+            return {
+                'type': 'quarantine',
+                'penalty': -50,
+                'message': 'Host has been quarantined by IDS'
+            }
+        elif response_roll < quarantine_prob + patch_prob:
+            # Moderate: Service patched, exploit blocked
+            vulnerable_services = []
+            for srv_name, srv_num in self.service_idx_map.items():
+                if self.vector[self._get_service_idx(srv_num)] and srv_name not in self.patched_services:
+                    vulnerable_services.append(srv_name)
+            
+            patched = []
+            if vulnerable_services:
+                # Patch 1-2 random vulnerable services
+                num_to_patch = min(np.random.randint(1, 3), len(vulnerable_services))
+                patched = np.random.choice(vulnerable_services, num_to_patch, replace=False).tolist()
+                for srv in patched:
+                    self.patched_services.add(srv)
+            
+            return {
+                'type': 'patch',
+                'penalty': -20,
+                'patched_services': patched,
+                'message': f'IDS patched services: {patched}'
+            }
+        else:
+            # Minor: Increased monitoring (future actions riskier)
+            self.detection_multiplier = 2.0
+            return {
+                'type': 'monitor',
+                'penalty': -5,
+                'detection_multiplier': 2.0,
+                'message': 'Host under increased IDS monitoring'
+            }
+
     def perform_action(self, action):
         """Perform given action against this host
 
@@ -342,6 +518,11 @@ class HostVector:
             return next_state, ActionResult(True, 0, os=noisy_os)
 
         if action.is_exploit():
+            # Check if service has been patched by IDS
+            if action.service in self.patched_services:
+                result = ActionResult(False, 0, undefined_error=True)
+                return next_state, result
+            
             if self.is_running_service(action.service) and \
                (action.os is None or self.is_running_os(action.os)):
                 # service and os is present so exploit is successful
@@ -451,7 +632,17 @@ class HostVector:
 
     def copy(self):
         vector_copy = np.copy(self.vector)
-        return HostVector(vector_copy)
+        new_host = HostVector(vector_copy)
+        # Preserve service state tracking
+        new_host.service_states = dict(self.service_states)
+        # Preserve IDS state
+        new_host.detection_level = self.detection_level
+        new_host.last_scan_time = self.last_scan_time
+        new_host.failed_exploit_count = self.failed_exploit_count
+        new_host.detection_threshold = self.detection_threshold
+        new_host.patched_services = set(self.patched_services)
+        new_host.detection_multiplier = self.detection_multiplier
+        return new_host
 
     def numpy(self):
         return self.vector

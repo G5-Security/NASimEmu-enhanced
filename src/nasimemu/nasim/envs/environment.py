@@ -80,6 +80,12 @@ class NASimEnv(gym.Env):
         self.flat_actions = flat_actions
         self.flat_obs = flat_obs
 
+        # Set realism configurations on HostVector class
+        from .host_vector import HostVector
+        HostVector.set_scan_noise(scenario.scan_noise)
+        HostVector.set_churn_config(scenario.service_dynamics)
+        HostVector.set_ids_config(scenario.intrusion_detection)
+
         self.network = Network(scenario)
         self.current_state = State.generate_initial_state(self.network)
         self._renderer = None

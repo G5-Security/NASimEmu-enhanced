@@ -574,6 +574,10 @@ class ActionResult:
         failure)
     newly_discovered : dict
         host addresses discovered for the first time by action
+    ids_detected : bool
+        True if IDS detected the intrusion
+    ids_response : dict
+        IDS response information if detected
     """
 
     def __init__(self,
@@ -587,7 +591,9 @@ class ActionResult:
                  connection_error=False,
                  permission_error=False,
                  undefined_error=False,
-                 newly_discovered=None):
+                 newly_discovered=None,
+                 ids_detected=False,
+                 ids_response=None):
         """
         Parameters
         ----------
@@ -613,6 +619,10 @@ class ActionResult:
             True if action failed due to an undefined error (default=False)
         newly_discovered : dict, optional
             host addresses discovered for first time by action (default=None)
+        ids_detected : bool, optional
+            True if IDS detected the intrusion (default=False)
+        ids_response : dict, optional
+            IDS response information if detected (default=None)
         """
         self.success = success
         self.value = value
@@ -628,6 +638,8 @@ class ActionResult:
             self.newly_discovered = newly_discovered
         else:
             self.newly_discovered = {}
+        self.ids_detected = ids_detected
+        self.ids_response = ids_response if ids_response is not None else {}
 
     def info(self):
         """Get results as dict
@@ -647,7 +659,9 @@ class ActionResult:
             discovered=self.discovered,
             connection_error=self.connection_error,
             permission_error=self.permission_error,
-            newly_discovered=self.newly_discovered
+            newly_discovered=self.newly_discovered,
+            ids_detected=self.ids_detected,
+            ids_response=self.ids_response
         )
 
     def __str__(self):

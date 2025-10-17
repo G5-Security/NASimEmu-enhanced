@@ -290,6 +290,31 @@ class Scenario:
                 }
             ]
         })
+    
+    @property
+    def intrusion_detection(self):
+        """Intrusion detection system (IDS) configuration"""
+        return self.scenario_dict.get('intrusion_detection', {
+            'enabled': False,
+            'detection_decay': 0.98,
+            'base_thresholds': [0.7, 0.8],
+            'response_types': {
+                'quarantine': 0.2,
+                'patch': 0.4,
+                'monitor': 0.4
+            },
+            'failed_exploit_multiplier': 3.0,
+            'detection_increase': {
+                'subnet_scan': 0.02,
+                'service_scan': 0.05,
+                'os_scan': 0.03,
+                'process_scan': 0.03,
+                'exploit_failed': 0.15,
+                'exploit_success': 0.08,
+                'privesc_failed': 0.20,
+                'privesc_success': 0.10,
+            }
+        })
 
     @property
     def network_reliability(self):

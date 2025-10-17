@@ -104,6 +104,7 @@ class ScenarioLoaderV2:
         self._parse_scan_noise()
         self._parse_service_dynamics()
         self._parse_network_reliability()
+        self._parse_intrusion_detection()
         self._parse_hosts()
         self._parse_step_limit()
 
@@ -132,6 +133,7 @@ class ScenarioLoaderV2:
         scenario_dict["scan_noise"] = self.scan_noise
         scenario_dict["service_dynamics"] = self.service_dynamics
         scenario_dict["network_reliability"] = self.network_reliability
+        scenario_dict["intrusion_detection"] = self.intrusion_detection
 
         return Scenario(
             scenario_dict, name=self.name, generated=False
@@ -668,6 +670,34 @@ class ScenarioLoaderV2:
                         'duration': 1
                     }
                 ]
+            }
+    
+    def _parse_intrusion_detection(self):
+        """Parse intrusion detection system (IDS) configuration from YAML"""
+        if 'intrusion_detection' in self.yaml_dict:
+            self.intrusion_detection = self.yaml_dict['intrusion_detection']
+        else:
+            # Default: IDS disabled
+            self.intrusion_detection = {
+                'enabled': False,
+                'detection_decay': 0.98,
+                'base_thresholds': [0.7, 0.8],
+                'response_types': {
+                    'quarantine': 0.2,
+                    'patch': 0.4,
+                    'monitor': 0.4
+                },
+                'failed_exploit_multiplier': 3.0,
+                'detection_increase': {
+                    'subnet_scan': 0.02,
+                    'service_scan': 0.05,
+                    'os_scan': 0.03,
+                    'process_scan': 0.03,
+                    'exploit_failed': 0.15,
+                    'exploit_success': 0.08,
+                    'privesc_failed': 0.20,
+                    'privesc_success': 0.10,
+                }
             }
 
     def _validate_firewall(self, firewall):

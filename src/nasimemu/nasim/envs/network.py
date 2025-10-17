@@ -109,6 +109,34 @@ class Network:
 
         t_host = state.get_host(action.target)
         next_host_state, action_obs = t_host.perform_action(action)
+        
+        # Check for IDS detection after action is performed
+        detection_status, detection_response = next_host_state.update_detection(
+            action, action_obs.success, self.current_step
+        )
+        
+        if detection_status == 'DETECTED' and detection_response:
+            # IDS detected the intrusion - apply penalties and responses
+            action_obs.ids_detected = True
+            action_obs.ids_response = detection_response
+            
+            # Apply detection penalty to value
+            penalty = detection_response.get('penalty', 0)
+            action_obs.value += penalty
+            
+            # Handle different response types
+            response_type = detection_response.get('type', 'monitor')
+            if response_type == 'quarantine':
+                # Host is quarantined - lose all access
+                next_host_state.compromised = False
+                next_host_state.access = 0
+            elif response_type == 'patch':
+                # Services have been patched - already handled in HostVector
+                pass
+            elif response_type == 'monitor':
+                # Increased monitoring - already handled in HostVector
+                pass
+        
         next_state.update_host(action.target, next_host_state)
         self._update(next_state, action, action_obs)
         return next_state, action_obs
