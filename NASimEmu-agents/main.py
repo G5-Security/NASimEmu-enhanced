@@ -11,6 +11,61 @@ from config import config
 from nasim_problem import NASimRRL as Problem
 
 # ----------------------------------------------------------------------------------------
+def _print_curriculum_status(env, current_epoch):
+	"""Print current curriculum stage based on epoch.
+	
+	Fetches actual curriculum settings from the environment and displays them.
+	"""
+	try:
+		# Get curriculum info from first environment in the vectorized wrapper
+		info = env.env_method('get_curriculum_info', indices=[0])[0]
+		if not info:
+			return  # No curriculum active
+		
+		params = info.get('realism_params', {})
+		
+		print(f"\n{'='*80}")
+		print(f"[CURRICULUM] Epoch {current_epoch} | Stage: {info['name']}")
+		print(f"  Epoch Range: {info['start_epoch']}-{info['end_epoch']}")
+		print(f"{'='*80}")
+		
+		# IDS
+		ids_config = params.get('ids_config', {})
+		if ids_config.get('enabled'):
+			print(f"  IDS: Enabled (decay={ids_config.get('detection_decay', 0):.2f}, "
+			      f"threshold={ids_config.get('base_thresholds', [])})")
+		else:
+			print(f"  IDS: Disabled")
+		
+		# Scan Noise
+		scan_noise = params.get('scan_noise', {})
+		if 'service_scan' in scan_noise:
+			ss = scan_noise['service_scan']
+			print(f"  Scan Noise: service FP={ss.get('false_positive_rate', 0):.3f}, "
+			      f"FN={ss.get('false_negative_rate', 0):.3f}")
+		else:
+			print(f"  Scan Noise: Disabled")
+		
+		# Network Reliability
+		net_rel = params.get('network_reliability', {})
+		if 'timeout_probability' in net_rel:
+			print(f"  Network Reliability: timeout={net_rel['timeout_probability']:.3f}")
+		else:
+			print(f"  Network Reliability: Perfect (no timeouts)")
+		
+		# Service Dynamics
+		svc_dyn = params.get('service_dynamics', {})
+		if 'churn_probability' in svc_dyn:
+			print(f"  Service Dynamics: churn={svc_dyn['churn_probability']:.3f}")
+		else:
+			print(f"  Service Dynamics: Disabled")
+		
+		print(f"{'='*80}\n")
+	except Exception as e:
+		# Silently skip if curriculum not available
+		pass
+
+# ----------------------------------------------------------------------------------------
 def decay_time(step, start, min, factor, rate):
 	exp = step / rate * factor
 	value = (start - min) / (1 + exp) + min
@@ -152,6 +207,15 @@ if __name__ == '__main__':
 
 	tqdm_main = tqdm(desc='Training', unit=' steps')
 	s = env.reset()
+	
+	# Track total episodes completed across all parallel envs for curriculum
+	total_episodes_completed = 0
+	
+	# Get curriculum stage transition epochs dynamically from scenario
+	try:
+		curriculum_transition_epochs = env.env_method('get_stage_transition_epochs', indices=[0])[0]
+	except:
+		curriculum_transition_epochs = []
 
 	for step in itertools.count(start=1):
 		trace = []
@@ -172,7 +236,9 @@ if __name__ == '__main__':
 			s_true = [x['s_true'] for x in i]
 			d_true = [x['d_true'] for x in i] # note: currently d == d_true (dependency in v_target, q_target computations and reccurency in ppo
 
-			# (episode-level JSON logging moved to log interval below)
+			# Track episode completions for monitoring
+			episodes_done_this_step = sum(d_true)
+			total_episodes_completed += episodes_done_this_step
 
 			trace.append( (s_orig, raw_a, a_cnt, r, s_true, d_true) )
 
@@ -201,6 +267,10 @@ if __name__ == '__main__':
 
 		if step % config.log_rate == 0:
 			log_step = step // config.log_rate
+			current_epoch = log_step
+			
+			# Update curriculum based on current epoch
+			env.env_method('set_epoch', current_epoch)
 
 			# r_avg, s_ps_avg, s_avg, _ = problem_debug.evaluate(net)
 			# r_avg_trn, s_ps_avg_trn, s_avg_trn, _ = problem_debug.evaluate(net, split='train', subset=config.subset)
@@ -216,6 +286,7 @@ if __name__ == '__main__':
 		
 			log = {
 				'env_steps': tot_env_steps,
+				'episodes_completed': total_episodes_completed,  # Track curriculum progress
 				# 'el_env_steps': tot_el_env_steps,
 				'rate': tqdm_main.format_dict['rate'],
 
@@ -241,6 +312,16 @@ if __name__ == '__main__':
 
 				'debug': log_debug,
 			}
+			
+			# Print curriculum status at meaningful intervals
+			# Print at: early epochs (0-5), every 10 epochs, and at stage transitions from scenario
+			should_print = (
+				current_epoch <= 5 or  # Early training
+				current_epoch % 10 == 0 or  # Every 10 epochs
+				current_epoch in curriculum_transition_epochs  # Stage transitions from scenario
+			)
+			if should_print:
+				_print_curriculum_status(env, current_epoch)
 
 			norm_log = []
 			entropy_log = []

@@ -58,7 +58,8 @@ class NASimEnv(gym.Env):
                  scenario,
                  fully_obs=False,
                  flat_actions=True,
-                 flat_obs=True):
+                 flat_obs=True,
+                 training_mode=True):
         """
         Parameters
         ----------
@@ -73,20 +74,42 @@ class NASimEnv(gym.Env):
         flat_obs : bool, optional
             If true then uses a 1D observation space, otherwise uses a 2D
             observation space (default=True)
+        training_mode : bool, optional
+            Whether the environment is in training mode (True) or evaluation
+            mode (False). In evaluation mode, curriculum learning always uses
+            the most difficult stage. (default=True)
         """
         self.name = scenario.name
         self.scenario = scenario
         self.fully_obs = fully_obs
         self.flat_actions = flat_actions
         self.flat_obs = flat_obs
+        self.training_mode = training_mode
 
-        # Set realism configurations on HostVector class
-        from .host_vector import HostVector
-        HostVector.set_scan_noise(scenario.scan_noise)
-        HostVector.set_churn_config(scenario.service_dynamics)
-        HostVector.set_ids_config(scenario.intrusion_detection)
+        # Initialize curriculum manager if enabled
+        from .curriculum import CurriculumManager
+        if scenario.curriculum.get('enabled', False):
+            self.curriculum_manager = CurriculumManager(
+                scenario.curriculum,
+                training_mode=training_mode
+            )
+        else:
+            self.curriculum_manager = None
 
+        # Create the network first
         self.network = Network(scenario)
+        
+        # Set realism configurations on HostVector class
+        # If curriculum is enabled, this will be updated on reset()
+        from .host_vector import HostVector
+        if self.curriculum_manager:
+            # Apply initial curriculum stage settings
+            self._apply_curriculum_settings()
+        else:
+            # Use static settings from scenario
+            HostVector.set_scan_noise(scenario.scan_noise)
+            HostVector.set_churn_config(scenario.service_dynamics)
+            HostVector.set_ids_config(scenario.intrusion_detection)
         self.current_state = State.generate_initial_state(self.network)
         self._renderer = None
         # self.reset()
@@ -106,11 +129,32 @@ class NASimEnv(gym.Env):
         # )
 
         self.steps = 0
+    
+    def update_curriculum_epoch(self, epoch):
+        """Update curriculum epoch and immediately apply new settings.
+        
+        This should be called when the epoch changes during training.
+        It will update the epoch number and re-apply curriculum settings
+        if the stage has changed.
+        
+        Parameters
+        ----------
+        epoch : int
+            The current epoch number
+        """
+        if self.curriculum_manager and self.curriculum_manager.is_enabled():
+            self.curriculum_manager.update_epoch(epoch)
+            # Always re-apply settings when epoch changes (stage might have changed)
+            self._apply_curriculum_settings()
+            # Note: Printing is handled by the training loop at appropriate intervals
 
     def reset(self):
         """Reset the state of the environment and returns the initial state.
 
         Implements gym.Env.reset().
+        
+        If curriculum learning is enabled, this will update the realism
+        parameters based on the current training epoch.
 
         Returns
         -------
@@ -118,6 +162,14 @@ class NASimEnv(gym.Env):
             the initial observation of the environment
         """
         self.steps = 0
+        
+        # Update curriculum settings if enabled
+        # Note: Printing is handled by the training loop at epoch boundaries
+        if self.curriculum_manager:
+            # Note: current_epoch is updated by the training loop via set_epoch
+            # We just apply settings here - update happens externally
+            self._apply_curriculum_settings()
+        
         self.current_state = self.network.reset(self.current_state)
         self.last_obs = self.current_state.get_initial_observation(
             self.fully_obs
@@ -419,6 +471,40 @@ class NASimEnv(gym.Env):
         for host_addr in self.network.address_space:
             host = state.get_host(host_addr)
             host.update_service_churn(self.steps)
+    
+    def _apply_curriculum_settings(self):
+        """Apply current curriculum stage settings to the environment.
+        
+        This updates the realism parameters (IDS, scan noise, network
+        reliability, service dynamics) based on the current curriculum stage.
+        """
+        if not self.curriculum_manager:
+            return
+        
+        from .host_vector import HostVector
+        params = self.curriculum_manager.get_realism_params()
+        
+        # Update HostVector class settings
+        HostVector.set_ids_config(params['ids_config'])
+        HostVector.set_scan_noise(params['scan_noise'])
+        HostVector.set_churn_config(params['service_dynamics'])
+        
+        # Update network reliability (need to update the network object)
+        if hasattr(self.network, 'timeout_config'):
+            self.network.timeout_config = params['network_reliability']
+    
+    def get_curriculum_info(self):
+        """Get information about the current curriculum stage.
+        
+        Returns
+        -------
+        dict or None
+            Dictionary with curriculum stage information, or None if
+            curriculum is not enabled.
+        """
+        if self.curriculum_manager:
+            return self.curriculum_manager.get_stage_info()
+        return None
 
     def goal_reached(self, state=None):
         """Check if the state is the goal state.

@@ -105,6 +105,7 @@ class ScenarioLoaderV2:
         self._parse_service_dynamics()
         self._parse_network_reliability()
         self._parse_intrusion_detection()
+        self._parse_curriculum()
         self._parse_hosts()
         self._parse_step_limit()
 
@@ -134,6 +135,7 @@ class ScenarioLoaderV2:
         scenario_dict["service_dynamics"] = self.service_dynamics
         scenario_dict["network_reliability"] = self.network_reliability
         scenario_dict["intrusion_detection"] = self.intrusion_detection
+        scenario_dict["curriculum"] = self.curriculum
 
         return Scenario(
             scenario_dict, name=self.name, generated=False
@@ -698,6 +700,17 @@ class ScenarioLoaderV2:
                     'privesc_failed': 0.20,
                     'privesc_success': 0.10,
                 }
+            }
+    
+    def _parse_curriculum(self):
+        """Parse curriculum learning configuration from YAML"""
+        if 'curriculum' in self.yaml_dict:
+            self.curriculum = self.yaml_dict['curriculum']
+        else:
+            # Default: curriculum disabled
+            self.curriculum = {
+                'enabled': False,
+                'stages': []
             }
 
     def _validate_firewall(self, firewall):

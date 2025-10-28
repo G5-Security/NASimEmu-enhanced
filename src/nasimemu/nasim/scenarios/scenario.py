@@ -331,6 +331,14 @@ class Scenario:
                 }
             ]
         })
+    
+    @property
+    def curriculum(self):
+        """Curriculum learning configuration for progressive difficulty"""
+        return self.scenario_dict.get('curriculum', {
+            'enabled': False,
+            'stages': []
+        })
 
     def display(self):
         pprint(self.scenario_dict)

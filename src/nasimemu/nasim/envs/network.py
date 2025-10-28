@@ -29,6 +29,10 @@ class Network:
 
     def reset(self, state):
         """Reset the network state to initial state """
+        # Clear timeout state for new episode
+        self.active_timeouts.clear()
+        self.current_step = 0
+        
         next_state = state.copy()
         for host_addr in self.address_space:
             host = next_state.get_host(host_addr)
@@ -36,6 +40,19 @@ class Network:
             host.access = AccessLevel.NONE
             host.reachable = self.subnet_public(host_addr[0])
             host.discovered = host.reachable
+            
+            # Reset IDS state for new episode
+            host.detection_level = 0.0
+            host.last_scan_time = -1000
+            host.failed_exploit_count = 0
+            threshold_range = host.ids_config.get('base_thresholds', [0.7, 0.8])
+            host.detection_threshold = np.random.uniform(threshold_range[0], threshold_range[1])
+            host.patched_services.clear()
+            host.detection_multiplier = 1.0
+            
+            # Reset service churn state for new episode
+            host.service_states.clear()
+            
         return next_state
 
     def perform_action(self, state, action):

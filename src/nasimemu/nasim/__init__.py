@@ -53,7 +53,8 @@ def load(path,
          fully_obs=False,
          flat_actions=True,
          flat_obs=True,
-         name=None):
+         name=None,
+         training_mode=True):
     """Load NASim Environment from a .yaml scenario file.
 
     Parameters
@@ -72,6 +73,10 @@ def load(path,
     name : str, optional
         the scenarios name, if None name will be generated from path
         (default=None)
+    training_mode : bool, optional
+        whether the environment is in training mode (True) or evaluation
+        mode (False). In evaluation mode, curriculum learning always uses
+        the most difficult stage. (default=True)
 
     Returns
     -------
@@ -80,7 +85,8 @@ def load(path,
     """
     env_kwargs = {"fully_obs": fully_obs,
                   "flat_actions": flat_actions,
-                  "flat_obs": flat_obs}
+                  "flat_obs": flat_obs,
+                  "training_mode": training_mode}
     scenario = load_scenario(path, name=name)
     return NASimEnv(scenario, **env_kwargs)
 

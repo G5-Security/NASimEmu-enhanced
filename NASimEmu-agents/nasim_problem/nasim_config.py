@@ -24,6 +24,10 @@ class NASimConfig():
 	def update_config(config, args):
 		config.emulate = args.emulate
 		
+		# Set training mode based on --eval flag
+		# training_mode=True enables curriculum learning, False uses max difficulty
+		config.training_mode = not getattr(args, 'eval', False)
+		
 		# config.scenario_name = 'medium-gen-rgoal'
 		# config.scenario_name = "nasim/scenarios/benchmark/tiny.yaml"
 		# config.scenario_name = "nasim_emulation/scenarios/simple_03.yaml"
@@ -72,6 +76,7 @@ class NASimConfig():
 		env = NASimEmuEnv(
 			scenario_name=config.scenario_name,
 			augment_with_action=config.augment_with_action,
+			training_mode=config.training_mode,  # Pass training_mode for curriculum learning
 			feature_dropout_p=getattr(args, 'feature_dropout_p', 0.0),
 			dr_prob_jitter=getattr(args, 'dr_prob_jitter', 0.0),
 			dr_cost_jitter=getattr(args, 'dr_cost_jitter', 0.0),

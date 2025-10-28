@@ -35,6 +35,9 @@ class State:
         """
         self.tensor = network_tensor
         self.host_num_map = host_num_map
+        # Cache of HostVector instances to preserve IDS state and service churn tracking
+        # Key: host_addr, Value: HostVector instance
+        self.host_instances = {}
 
     @classmethod
     def tensorize(cls, network):
@@ -96,7 +99,11 @@ class State:
 
     def copy(self):
         new_tensor = np.copy(self.tensor)
-        return State(new_tensor, self.host_num_map)
+        new_state = State(new_tensor, self.host_num_map)
+        # Deep copy the host instances cache to preserve IDS state and service churn
+        for host_addr, host_instance in self.host_instances.items():
+            new_state.host_instances[host_addr] = host_instance.copy()
+        return new_state
 
     def get_initial_observation(self, fully_obs):
         """Get the initial observation of network.
@@ -215,17 +222,29 @@ class State:
     def update_host(self, host_addr, host_vector):
         host_idx = self.host_num_map[host_addr]
         self.tensor[host_idx] = host_vector.vector
+        # Update cache to preserve IDS state and service churn tracking
+        self.host_instances[host_addr] = host_vector
 
     def get_host(self, host_addr):
+        # Return cached instance if exists (preserves IDS state and service churn)
+        if host_addr in self.host_instances:
+            # Update the vector reference in case tensor was modified directly
+            host_idx = self.host_num_map[host_addr]
+            self.host_instances[host_addr].vector = self.tensor[host_idx]
+            return self.host_instances[host_addr]
+        
+        # Create new instance and cache it
         host_idx = self.host_num_map[host_addr]
-        return HostVector(self.tensor[host_idx])
+        host_instance = HostVector(self.tensor[host_idx])
+        self.host_instances[host_addr] = host_instance
+        return host_instance
 
     def get_host_idx(self, host_addr):
         return self.host_num_map[host_addr]
 
     def get_host_and_idx(self, host_addr):
         host_idx = self.host_num_map[host_addr]
-        return host_idx, HostVector(self.tensor[host_idx])
+        return host_idx, self.get_host(host_addr)
 
     def host_reachable(self, host_addr):
         return self.get_host(host_addr).reachable

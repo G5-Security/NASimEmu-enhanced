@@ -69,6 +69,7 @@ class PartiallyObservableWrapper():
 # observation_format in ['matrix', 'graph']
 class NASimEmuEnv(gym.Env):
     def __init__(self, scenario_name, emulate=False, step_limit=None, random_init=False, observation_format='matrix', fully_obs=False, augment_with_action=False, verbose=False, feature_dropout_p=0.0, dr_prob_jitter=0.0, dr_cost_jitter=0.0, dr_scan_cost_jitter=0.0, 
+                 training_mode=True,  # Curriculum learning: True=training, False=evaluation
                  # auto scenario generation (plumbing only; no behavior yet)
                  auto_mode='off', auto_template=None, auto_host_range=None, auto_subnet_count=None, auto_topology=None, auto_sensitive_policy=None, auto_seed_base=None, auto_sensitive_jitter=0.0):
         # different processes need different seeds
@@ -85,6 +86,7 @@ class NASimEmuEnv(gym.Env):
         self.dr_prob_jitter = float(dr_prob_jitter or 0.0)
         self.dr_cost_jitter = float(dr_cost_jitter or 0.0)
         self.dr_scan_cost_jitter = float(dr_scan_cost_jitter or 0.0)
+        self.training_mode = training_mode  # For curriculum learning
 
         self.scenario_name = scenario_name
         self.random_init = random_init
@@ -247,6 +249,8 @@ class NASimEmuEnv(gym.Env):
                 'scan_noise': yaml.get('scan_noise', {}),
                 'service_dynamics': yaml.get('service_dynamics', {}),
                 'network_reliability': yaml.get('network_reliability', {}),
+                'curriculum': yaml.get('curriculum', {}),
+                'intrusion_detection': yaml.get('intrusion_detection', {}),
             }
 
         T = self._auto_cache
@@ -341,6 +345,10 @@ class NASimEmuEnv(gym.Env):
             scenario_dict['service_dynamics'] = T['service_dynamics']
         if T['network_reliability']:
             scenario_dict['network_reliability'] = T['network_reliability']
+        if T['curriculum']:
+            scenario_dict['curriculum'] = T['curriculum']
+        if T['intrusion_detection']:
+            scenario_dict['intrusion_detection'] = T['intrusion_detection']
         sc = Scenario(scenario_dict, name='auto_from_template', generated=True)
         return sc
 
@@ -399,24 +407,54 @@ class NASimEmuEnv(gym.Env):
             scenario.scenario_dict['process_scan_cost'] = _jitter_cost(scenario.scenario_dict['process_scan_cost'])
             scenario.scenario_dict['os_scan_cost'] = _jitter_cost(scenario.scenario_dict['os_scan_cost'])
 
-        if self.emulate:
-            self.env = EmulatedNASimEnv(scenario=scenario)
+        # Only create new env if it doesn't exist, otherwise just update scenario
+        # This preserves curriculum state across resets
+        if not hasattr(self, 'env') or self.env is None:
+            if self.emulate:
+                self.env = EmulatedNASimEnv(scenario=scenario)
+            else:
+                self.env = NASimEnv(scenario, fully_obs=self.fully_obs, flat_actions=False, flat_obs=False,
+                                  training_mode=self.training_mode)  # Pass training_mode for curriculum
         else:
-            self.env = NASimEnv(scenario, fully_obs=self.fully_obs, flat_actions=False, flat_obs=False)
+            # Update scenario on existing env without recreating (preserves curriculum state)
+            self.env.scenario = scenario
+            # Reinitialize network and state with new scenario
+            from nasimemu.nasim.envs.network import Network
+            from nasimemu.nasim.envs.state import State
+            from nasimemu.nasim.envs.action import FlatActionSpace, ParameterisedActionSpace
+            self.env.network = Network(scenario)
+            self.env.current_state = State.generate_initial_state(self.env.network)
+            # Recreate action space for new scenario
+            if self.env.flat_actions:
+                self.env.action_space = FlatActionSpace(scenario)
+            else:
+                self.env.action_space = ParameterisedActionSpace(scenario)
 
-        # Initialize scan noise configuration
-        if hasattr(scenario, 'scan_noise'):
-            from nasimemu.nasim.envs.host_vector import HostVector
-            HostVector.set_scan_noise(scenario.scan_noise)
+        # Initialize realism parameters ONLY if curriculum is not managing them
+        # If curriculum is active, it will handle these settings dynamically
+        curriculum_active = (
+            hasattr(self.env, 'curriculum_manager') and 
+            self.env.curriculum_manager is not None and 
+            self.env.curriculum_manager.is_enabled()
+        )
+        
+        if not curriculum_active:
+            # No curriculum - use static settings from scenario
+            if hasattr(scenario, 'scan_noise'):
+                from nasimemu.nasim.envs.host_vector import HostVector
+                HostVector.set_scan_noise(scenario.scan_noise)
 
-        # Initialize service dynamics configuration
-        if hasattr(scenario, 'service_dynamics'):
-            from nasimemu.nasim.envs.host_vector import HostVector
-            HostVector.set_churn_config(scenario.service_dynamics)
+            if hasattr(scenario, 'service_dynamics'):
+                from nasimemu.nasim.envs.host_vector import HostVector
+                HostVector.set_churn_config(scenario.service_dynamics)
 
-        # Initialize network reliability configuration
-        if hasattr(scenario, 'network_reliability'):
-            self.env.network.timeout_config = scenario.network_reliability
+            if hasattr(scenario, 'network_reliability'):
+                self.env.network.timeout_config = scenario.network_reliability
+            
+            if hasattr(scenario, 'intrusion_detection'):
+                from nasimemu.nasim.envs.host_vector import HostVector
+                HostVector.set_ids_config(scenario.intrusion_detection)
+        # else: curriculum is active and will manage these settings via _apply_curriculum_settings()
 
         if not self.fully_obs:
             self.env_po_wrapper = PartiallyObservableWrapper()
@@ -645,6 +683,77 @@ class NASimEmuEnv(gym.Env):
             self.env.render(obs=s)
 
         return s
+    
+    def set_epoch(self, epoch_num):
+        """Set current epoch number for curriculum learning.
+        
+        This should be called at each epoch to update the curriculum stage.
+        It will immediately apply the new curriculum settings if the stage changes.
+        
+        Parameters
+        ----------
+        epoch_num : int
+            The current epoch number
+        """
+        if hasattr(self.env, 'update_curriculum_epoch'):
+            self.env.update_curriculum_epoch(epoch_num)
+    
+    def get_curriculum_info(self):
+        """Get curriculum information from the underlying environment.
+        
+        Returns
+        -------
+        dict or None
+            Dictionary with curriculum stage info and realism parameters,
+            or None if curriculum is not enabled.
+        """
+        if hasattr(self.env, 'get_curriculum_info'):
+            stage_info = self.env.get_curriculum_info()
+            if stage_info:
+                # Also get the realism parameters
+                if hasattr(self.env, 'curriculum_manager'):
+                    params = self.env.curriculum_manager.get_realism_params()
+                    stage_info['realism_params'] = params
+                return stage_info
+        return None
+    
+    def get_stage_transition_epochs(self):
+        """Get list of epochs where curriculum stages transition.
+        
+        Returns
+        -------
+        list of int
+            Sorted list of epoch numbers where stage transitions occur,
+            or empty list if curriculum is not enabled.
+        """
+        if hasattr(self.env, 'curriculum_manager') and self.env.curriculum_manager is not None:
+            return self.env.curriculum_manager.get_stage_transition_epochs()
+        return []
+    
+    def get_actual_realism_params(self):
+        """Get ACTUAL realism parameters currently set in the environment.
+        
+        Queries the actual class variables (HostVector, Network) to get
+        what's currently active, not just what's in the YAML config.
+        
+        Returns
+        -------
+        dict
+            Dictionary with actual settings for IDS, scan noise, network reliability,
+            and service dynamics.
+        """
+        try:
+            from nasimemu.nasim.envs.host_vector import HostVector
+            
+            # Get actual values from HostVector class variables
+            return {
+                'ids_config': getattr(HostVector, 'ids_config', None),
+                'scan_noise': getattr(HostVector, 'scan_noise_config', None),
+                'service_dynamics': getattr(HostVector, 'churn_config', None),
+                'network_reliability': getattr(self.env.network, 'timeout_config', None) if hasattr(self.env, 'network') else None
+            }
+        except Exception as e:
+            return {}
 
     def render(self, s):
         self.env.render(obs=s)

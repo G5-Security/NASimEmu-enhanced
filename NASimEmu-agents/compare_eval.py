@@ -12,41 +12,56 @@ import shlex
 # Number of times to repeat each eval (can be overridden by --runs)
 NUM_RUNS = 3
 
-# Provide your eval commands here. Examples (replace as needed):
-# Make sure to include --eval and -load_model flags
-train_eval_command = (
-    "python main.py ../scenarios/corp_100hosts_dynamic.v2.yaml --eval "
-    "-load_model wandb/latest-run/files/model.pt "
-    "-device cpu -cpus 8 "
-    "-net_class NASimNetXAtt "
-    "-use_a_t -episode_step_limit 400 "
-    "-observation_format list "
-    "--feature_dropout_p 0.0 --dr_prob_jitter 0.0 --dr_cost_jitter 0.0 --dr_scan_cost_jitter 0.0 "
-    "--auto_mode per_episode --auto_template ../scenarios/corp_100hosts_dynamic.v2.yaml "
-    "--auto_host_range 72-96 --auto_subnet_count 12 --auto_topology mesh "
-    "--auto_sensitive_policy deep --auto_sensitive_jitter 0.0"
-)
-
-test_eval_command = (
-    "python main.py ../scenarios/corp_100hosts_dynamic_test.v2.yaml --eval "
-    "-load_model wandb/latest-run/files/model.pt "
-    "-device cpu -cpus 8 "
-    "-net_class NASimNetXAtt "
-    "-use_a_t -episode_step_limit 400 "
-    "-observation_format list "
-    "--feature_dropout_p 0.0 --dr_prob_jitter 0.0 --dr_cost_jitter 0.0 --dr_scan_cost_jitter 0.0 "
-    "--auto_mode per_episode --auto_template ../scenarios/corp_100hosts_dynamic_test.v2.yaml "
-    "--auto_host_range 72-96 --auto_subnet_count 12 --auto_topology mesh "
-    "--auto_sensitive_policy deep --auto_sensitive_jitter 0.0"
-)
-
-
-
+# Define scenarios with their complete commands
+SCENARIO_COMMANDS = {
+    "Training Template": (
+        "python main.py ../scenarios/corp_100hosts_dynamic.v2.yaml --eval "
+        "-load_model wandb/latest-run/files/model.pt "
+        "-device cpu -cpus 8 "
+        "-net_class NASimNetGNN_LSTM "
+        "-use_a_t -episode_step_limit 400 "
+        "-observation_format graph_v2 -mp_iterations 3 "
+        "--feature_dropout_p 0.0 --dr_prob_jitter 0.0 --dr_cost_jitter 0.0 --dr_scan_cost_jitter 0.0 "
+        "--auto_mode per_episode --auto_template ../scenarios/corp_100hosts_dynamic.v2.yaml "
+        "--auto_host_range 72-96 --auto_subnet_count 12 --auto_topology mesh "
+        "--auto_sensitive_policy deep --auto_sensitive_jitter 0.0"
+    ),
+    "Bridge Template": (
+        "python main.py ../scenarios/corp_100hosts_dynamic_bridge.v2.yaml --eval "
+        "-load_model wandb/latest-run/files/model.pt "
+        "-device cpu -cpus 8 "
+        "-net_class NASimNetGNN_LSTM "
+        "-use_a_t -episode_step_limit 400 "
+        "-observation_format graph_v2 -mp_iterations 3 "
+        "--feature_dropout_p 0.0 --dr_prob_jitter 0.0 --dr_cost_jitter 0.0 --dr_scan_cost_jitter 0.0 "
+        "--auto_mode per_episode --auto_template ../scenarios/corp_100hosts_dynamic_bridge.v2.yaml "
+        "--auto_host_range 72-96 --auto_subnet_count 12 --auto_topology mesh "
+        "--auto_sensitive_policy deep --auto_sensitive_jitter 0.0"
+    ),
+    "Test Template": (
+        "python main.py ../scenarios/corp_100hosts_dynamic_test.v2.yaml --eval "
+        "-load_model wandb/latest-run/files/model.pt "
+        "-device cpu -cpus 8 "
+        "-net_class NASimNetGNN_LSTM "
+        "-use_a_t -episode_step_limit 400 "
+        "-observation_format graph_v2 -mp_iterations 3 "
+        "--feature_dropout_p 0.0 --dr_prob_jitter 0.0 --dr_cost_jitter 0.0 --dr_scan_cost_jitter 0.0 "
+        "--auto_mode per_episode --auto_template ../scenarios/corp_100hosts_dynamic_test.v2.yaml "
+        "--auto_host_range 72-96 --auto_subnet_count 12 --auto_topology mesh "
+        "--auto_sensitive_policy deep --auto_sensitive_jitter 0.0"
+    ),
+    # Add more scenarios as needed:
+    # "Variant A": (
+    #     "python main.py ../scenarios/corp_100hosts_dynamic_varA.v2.yaml --eval "
+    #     "-load_model wandb/latest-run/files/model.pt "
+    #     # ... rest of command
+    # ),
+}
 
 # Output filename for JSON results (can be overridden by --out)
-OUTPUT_FILENAME = "auto_scen_attn.json"
+OUTPUT_FILENAME = "multi_scenario_eval.json"
 # Optional run description (can be overridden by --desc)
-DESCRIPTION = "Auto generated scnearios training comparisons completed 200 epoch training on Attention."
+DESCRIPTION = "Multi-scenario evaluation comparison"
 # =============================================================================
 
 # Regexes to extract metrics; handles np.float64(…) or plain numeric literals
@@ -248,20 +263,59 @@ def summarize(label: str, runs: List[Dict[str, Any]]) -> Optional[Dict[str, floa
     return avg
 
 
-def compare(train_avg: Optional[Dict[str, float]], test_avg: Optional[Dict[str, float]]) -> Optional[Dict[str, Dict[str, float]]]:
-    print("\n=== Train vs Test Comparison ===")
-    if train_avg is None or test_avg is None:
-        print("Cannot compare; missing averages.")
+def compare_scenarios(scenario_averages: Dict[str, Optional[Dict[str, float]]], baseline_scenario: str = None) -> Optional[Dict[str, Dict[str, Dict[str, float]]]]:
+    """Compare all scenarios against each other or against a baseline scenario."""
+    print("\n=== Multi-Scenario Comparison ===")
+    
+    # Filter out None values
+    valid_scenarios = {k: v for k, v in scenario_averages.items() if v is not None}
+    if len(valid_scenarios) < 2:
+        print("Cannot compare; need at least 2 valid scenarios.")
         return None
-    comparison: Dict[str, Dict[str, float]] = {"delta": {}, "ratio": {}}
-    for key in ["reward_avg", "reward_avg_episodes", "eplen_avg", "captured_avg"]:
-        t = train_avg[key]
-        s = test_avg[key]
-        delta = s - t
-        ratio = (s / t) if t != 0 else float('inf')
-        print(f"{key}: test={s:.6f}, train={t:.6f}, delta={delta:.6f}, ratio={ratio:.3f}")
-        comparison["delta"][key] = delta
-        comparison["ratio"][key] = ratio
+    
+    # If no baseline specified, use the first scenario as baseline
+    if baseline_scenario is None or baseline_scenario not in valid_scenarios:
+        baseline_scenario = list(valid_scenarios.keys())[0]
+        print(f"Using '{baseline_scenario}' as baseline scenario")
+    
+    baseline_avg = valid_scenarios[baseline_scenario]
+    comparison: Dict[str, Dict[str, Dict[str, float]]] = {"vs_baseline": {}, "pairwise": {}}
+    
+    # Compare each scenario against baseline
+    print(f"\n--- Comparisons vs Baseline ({baseline_scenario}) ---")
+    for scenario_name, avg in valid_scenarios.items():
+        if scenario_name == baseline_scenario:
+            continue
+        comparison["vs_baseline"][scenario_name] = {}
+        print(f"\n{scenario_name} vs {baseline_scenario}:")
+        for key in ["reward_avg", "reward_avg_episodes", "eplen_avg", "captured_avg"]:
+            baseline_val = baseline_avg[key]
+            scenario_val = avg[key]
+            delta = scenario_val - baseline_val
+            ratio = (scenario_val / baseline_val) if baseline_val != 0 else float('inf')
+            print(f"  {key}: {scenario_name}={scenario_val:.6f}, baseline={baseline_val:.6f}, delta={delta:.6f}, ratio={ratio:.3f}")
+            comparison["vs_baseline"][scenario_name][key] = {"delta": delta, "ratio": ratio}
+    
+    # Pairwise comparisons
+    print(f"\n--- Pairwise Comparisons ---")
+    scenario_names = list(valid_scenarios.keys())
+    for i, scenario_a in enumerate(scenario_names):
+        for j, scenario_b in enumerate(scenario_names):
+            if i >= j:  # Skip same scenario and avoid duplicates
+                continue
+            pair_key = f"{scenario_a}_vs_{scenario_b}"
+            comparison["pairwise"][pair_key] = {}
+            print(f"\n{scenario_a} vs {scenario_b}:")
+            avg_a = valid_scenarios[scenario_a]
+            avg_b = valid_scenarios[scenario_b]
+            for key in ["reward_avg", "reward_avg_episodes", "eplen_avg", "captured_avg"]:
+                val_a = avg_a[key]
+                val_b = avg_b[key]
+                delta = val_b - val_a
+                ratio = (val_b / val_a) if val_a != 0 else float('inf')
+                print(f"  {key}: {scenario_a}={val_a:.6f}, {scenario_b}={val_b:.6f}, delta={delta:.6f}, ratio={ratio:.3f}")
+                comparison["pairwise"][pair_key][key] = {"delta": delta, "ratio": ratio}
+    
     return comparison
 
 
@@ -272,9 +326,9 @@ def export_json(path: str, payload: Dict[str, Any]) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Compare NASimEmu eval results (train vs test)")
-    parser.add_argument("--train_cmd", type=str, default=train_eval_command, help="Train eval command")
-    parser.add_argument("--test_cmd", type=str, default=test_eval_command, help="Test eval command")
+    parser = argparse.ArgumentParser(description="Compare NASimEmu eval results across multiple scenarios")
+    parser.add_argument("--scenarios", type=str, nargs="*", help="Override scenarios (space-separated scenario names)")
+    parser.add_argument("--baseline", type=str, help="Baseline scenario for comparisons")
     parser.add_argument("--runs", type=int, default=NUM_RUNS, help="Number of runs per command")
     parser.add_argument("--out", type=str, default=OUTPUT_FILENAME, help="Output JSON filename")
     parser.add_argument("--desc", type=str, default=DESCRIPTION, help="Optional description of this run")
@@ -284,36 +338,65 @@ def parse_args() -> argparse.Namespace:
 if __name__ == "__main__":
     args = parse_args()
 
-    # Run train and test from current directory
-    train_runs = run_n_times("TRAIN", args.train_cmd, args.runs)
-    test_runs = run_n_times("TEST", args.test_cmd, args.runs)
+    # Determine scenarios to evaluate
+    if args.scenarios:
+        # Use command line provided scenario names
+        selected_scenarios = {name: SCENARIO_COMMANDS[name] for name in args.scenarios if name in SCENARIO_COMMANDS}
+        if not selected_scenarios:
+            print(f"Error: None of the specified scenarios {args.scenarios} found in SCENARIO_COMMANDS")
+            print(f"Available scenarios: {list(SCENARIO_COMMANDS.keys())}")
+            exit(1)
+        scenarios = selected_scenarios
+    else:
+        # Use all default scenarios from SCENARIO_COMMANDS dict
+        scenarios = SCENARIO_COMMANDS
 
-    # Summaries
-    train_avg = summarize("TRAIN", train_runs)
-    test_avg = summarize("TEST", test_runs)
+    print(f"Evaluating {len(scenarios)} scenarios:")
+    for name, command in scenarios.items():
+        print(f"  {name}: {command[:100]}...")
+
+    # Run evaluations for all scenarios
+    scenario_runs = {}
+    scenario_averages = {}
+    
+    for scenario_name, command in scenarios.items():
+        print(f"\n=== Running command for scenario: {scenario_name} ===")
+        runs = run_n_times(scenario_name, command, args.runs)
+        scenario_runs[scenario_name] = runs
+        avg = summarize(scenario_name, runs)
+        scenario_averages[scenario_name] = avg
 
     # Comparison
-    comparison = compare(train_avg, test_avg)
+    comparison = compare_scenarios(scenario_averages, args.baseline)
 
-    # Parse command flags for metadata
-    train_cmd_parsed = parse_cmd_params(args.train_cmd)
-    test_cmd_parsed = parse_cmd_params(args.test_cmd)
+    # Parse command flags for metadata (using first scenario as example)
+    first_scenario_name = list(scenarios.keys())[0]
+    first_command = scenarios[first_scenario_name]
+    cmd_parsed = parse_cmd_params(first_command)
 
     # Metadata and export
     payload: Dict[str, Any] = {
         "metadata": {
-            "script_version": 2,
+            "script_version": 4,
             "cwd": os.getcwd(),
             "timestamp": datetime.utcnow().isoformat() + "Z",
             "num_runs": args.runs,
             "description": args.desc,
-            "train_cmd": args.train_cmd,
-            "test_cmd": args.test_cmd,
-            "train_cmd_parsed": train_cmd_parsed,
-            "test_cmd_parsed": test_cmd_parsed,
+            "num_scenarios": len(scenarios),
+            "scenario_names": list(scenarios.keys()),
+            "baseline_scenario": args.baseline,
+            "command_parsed": cmd_parsed,
         },
-        "train": {"runs": train_runs, "average": train_avg},
-        "test": {"runs": test_runs, "average": test_avg},
+        "scenarios": {},
         "comparison": comparison,
     }
+
+    # Add results for each scenario
+    for scenario_name, command in scenarios.items():
+        payload["scenarios"][scenario_name] = {
+            "command": command,
+            "runs": scenario_runs[scenario_name],
+            "average": scenario_averages[scenario_name]
+        }
+
     export_json(args.out, payload) 

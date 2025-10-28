@@ -27,6 +27,15 @@ def worker(remote, parent_remote, env_fn_wrappers):
                 break
             elif cmd == 'get_spaces_spec':
                 remote.send(CloudpickleWrapper((envs[0].observation_space, envs[0].action_space, envs[0].spec)))
+            elif cmd == 'call_method':
+                method_name, method_args, indices = data
+                if indices is None:
+                    indices = range(len(envs))
+                results = []
+                for i in indices:
+                    method = getattr(envs[i], method_name)
+                    results.append(method(*method_args) if method_args else method())
+                remote.send(results)
             else:
                 raise NotImplementedError
     except KeyboardInterrupt:
@@ -115,6 +124,39 @@ class SubprocVecEnv(VecEnv):
 
     def _assert_not_closed(self):
         assert not self.closed, "Trying to operate on a SubprocVecEnv after calling close()"
+    
+    def env_method(self, method_name, *method_args, indices=None, **method_kwargs):
+        """Call a method on (a subset of) environments.
+        
+        Parameters
+        ----------
+        method_name : str
+            Name of the method to call
+        *method_args
+            Positional arguments to pass to the method
+        indices : list or None
+            Indices of environments to call method on (None = all environments)
+        **method_kwargs
+            Keyword arguments (not yet supported, use method_args only)
+        
+        Returns
+        -------
+        list
+            Results from calling the method on each environment
+        """
+        self._assert_not_closed()
+        
+        # Send to first remote only if indices=[0], otherwise all remotes
+        if indices == [0] or indices == 0:
+            # Only call on first environment in first remote
+            self.remotes[0].send(('call_method', (method_name, method_args, [0])))
+            return self.remotes[0].recv()
+        else:
+            # Call on all environments
+            for remote in self.remotes:
+                remote.send(('call_method', (method_name, method_args, None)))
+            results = [remote.recv() for remote in self.remotes]
+            return _flatten_list(results)
 
     def __del__(self):
         if not self.closed:
