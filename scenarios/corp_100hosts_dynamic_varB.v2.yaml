@@ -245,3 +245,15 @@ process_scan_cost: 2
 
 host_configurations: _random
 firewall: _subnets 
+
+# Scan noise configuration for realism
+scan_noise:
+  service_scan:
+    false_positive_rate: 0.05  # 5% chance of showing non-existent service
+    false_negative_rate: 0.10  # 10% chance of missing real service
+  os_scan:
+    false_positive_rate: 0.02
+    false_negative_rate: 0.05
+  process_scan:
+    false_positive_rate: 0.08
+    false_negative_rate: 0.15 
