@@ -47,13 +47,21 @@ class Object:
 		self.opt_l2 = 1.0e-4
 		self.opt_max_norm = args.max_norm
 
-		self.sched_lr_factor = 0.5
-		self.sched_lr_min    = self.opt_lr / 30
-		self.sched_lr_rate   = 25 * self.epoch
+		# Learning-rate schedule (defaults mimic previous behavior)
+		default_sched_lr_factor = 0.5
+		default_sched_lr_min = self.opt_lr / 30
+		default_sched_lr_rate = 25 * self.epoch
+		self.sched_lr_factor = default_sched_lr_factor if args.sched_lr_factor is None else args.sched_lr_factor
+		self.sched_lr_min    = default_sched_lr_min    if args.sched_lr_min    is None else args.sched_lr_min
+		self.sched_lr_rate   = default_sched_lr_rate   if args.sched_lr_rate   is None else args.sched_lr_rate
 		
-		self.sched_alpha_h_factor = 1.0
-		self.sched_alpha_h_min    = self.alpha_h / 100.
-		self.sched_alpha_h_rate   = 10 * self.epoch
+		# Entropy regularization schedule
+		default_sched_alpha_h_factor = 1.0
+		default_sched_alpha_h_min = self.alpha_h / 100.
+		default_sched_alpha_h_rate = 10 * self.epoch
+		self.sched_alpha_h_factor = default_sched_alpha_h_factor if args.sched_alpha_h_factor is None else args.sched_alpha_h_factor
+		self.sched_alpha_h_min    = default_sched_alpha_h_min    if args.sched_alpha_h_min    is None else args.sched_alpha_h_min
+		self.sched_alpha_h_rate   = default_sched_alpha_h_rate   if args.sched_alpha_h_rate   is None else args.sched_alpha_h_rate
 
 		self.v_range = None #(-np.inf, np.inf)	# range of the value function to help the optimization, can be None
 
@@ -70,5 +78,4 @@ class Object:
 		return str( vars(self) )
 
 config = Object()
-
 

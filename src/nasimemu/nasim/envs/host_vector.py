@@ -122,6 +122,9 @@ class HostVector:
     _os_start_idx = None
     _service_start_idx = None
     _process_start_idx = None
+    _detection_level_idx = None
+    _detection_threshold_idx = None
+    _detection_multiplier_idx = None
 
     def __init__(self, vector):
         self.vector = vector
@@ -165,6 +168,9 @@ class HostVector:
         host_procs = host.processes.items()
         for proc_num, (proc_key, proc_val) in enumerate(host_procs):
             vector[cls._get_process_idx(proc_num)] = int(proc_val) # TODO we should determine process by proc_key, not proc_num
+        vector[cls._detection_level_idx] = host.detection_level
+        vector[cls._detection_threshold_idx] = host.detection_threshold
+        vector[cls._detection_multiplier_idx] = host.detection_multiplier
         return cls(vector)
 
     @classmethod
@@ -679,7 +685,10 @@ class HostVector:
         cls._os_start_idx = cls._access_idx + 1
         cls._service_start_idx = cls._os_start_idx + cls.num_os
         cls._process_start_idx = cls._service_start_idx + cls.num_services
-        cls.state_size = cls._process_start_idx + cls.num_processes
+        cls._detection_level_idx = cls._process_start_idx + cls.num_processes
+        cls._detection_threshold_idx = cls._detection_level_idx + 1
+        cls._detection_multiplier_idx = cls._detection_threshold_idx + 1
+        cls.state_size = cls._detection_multiplier_idx + 1
 
     @classmethod
     def _subnet_address_idx_slice(cls):
@@ -730,6 +739,10 @@ class HostVector:
             readable_dict[f"{srv_name}"] = hvec.is_running_service(srv_name)
         for proc_name in cls.process_idx_map:
             readable_dict[f"{proc_name}"] = hvec.is_running_process(proc_name)
+
+        readable_dict["Detection Level"] = hvec.detection_level
+        readable_dict["Detection Threshold"] = hvec.detection_threshold
+        readable_dict["Detection Multiplier"] = hvec.detection_multiplier
 
         return readable_dict
 

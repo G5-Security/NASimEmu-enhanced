@@ -1,5 +1,6 @@
 from nasimemu.env import NASimEmuEnv
 from .nasim_net_feudal import FeudalGTM
+from .nasim_net_base_hrl import NASimNetDHRL
 
 
 from .nasim_net_mlp import NASimNetMLP # Multi-layer perceptron
@@ -64,6 +65,18 @@ class NASimConfig():
 		config.auto_mode_test = getattr(args, 'auto_mode_test', None)
 			
 		config.net_class = eval(args.net_class)
+		
+		graph_required_nets = {
+			FeudalGTM,
+			NASimNetGNN,
+			NASimNetGNN_MAct,
+			NASimNetGNN_LSTM,
+			NASimNetDHRL,
+		}
+		graph_formats = {'graph', 'graph_v1', 'graph_v2'}
+		if config.net_class in graph_required_nets and config.observation_format not in graph_formats:
+			print(f"[NASimConfig] Forcing observation_format 'graph_v2' for {config.net_class.__name__} (got '{config.observation_format}')")
+			config.observation_format = 'graph_v2'
 			
 		# config.net_class = NASimNetXAtt
 		# config.net_class = NASimNetMLP
@@ -121,7 +134,7 @@ class NASimConfig():
 		
 		argparse.add_argument('-observation_format', type=str, default='list', help="list / graph")
 		argparse.add_argument('-augment_with_action', action='store_const', const=True, help="Include the last action in observation (useful with LSTM)")
-		argparse.add_argument('-net_class', type=str, default='NASimNetMLP', choices=['BaselineAgent', 'NASimNetMLP', 'NASimNetMLP_LSTM','FeudalGTM', 'NASimNetInv', 'NASimNetInvMAct', 'NASimNetInvMActTrainAT', 'NASimNetInvMActLSTM', 'NASimNetGNN', 'NASimNetGNN_MAct', 'NASimNetGNN_LSTM', 'NASimNetXAtt', 'NASimNetXAttMAct'])
+		argparse.add_argument('-net_class', type=str, default='NASimNetMLP', choices=['BaselineAgent', 'NASimNetMLP', 'NASimNetMLP_LSTM','FeudalGTM', 'NASimNetInv', 'NASimNetInvMAct', 'NASimNetInvMActTrainAT', 'NASimNetInvMActLSTM', 'NASimNetGNN', 'NASimNetGNN_MAct', 'NASimNetGNN_LSTM', 'NASimNetXAtt', 'NASimNetXAttMAct', 'NASimNetDHRL'])
 		
 		argparse.add_argument('-episode_step_limit', type=int, default=200, help="Force termination after number of steps")
 		argparse.add_argument('-use_a_t', action='store_const', const=True, help="Enable agent to terminate the episode")

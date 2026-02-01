@@ -237,55 +237,156 @@ privilege_escalation:
     prob: 0.6
     cost: 1
     access: root
-
-service_scan_cost: 2
+service_scan_cost: 1
 os_scan_cost: 1
-subnet_scan_cost: 2
-process_scan_cost: 2
+subnet_scan_cost: 1
+process_scan_cost: 1
 
+# Randomize host configs per episode, filtered by OS and skewed count distribution
 host_configurations: _random
-firewall: _subnets 
 
-# Bridge scan noise configuration (middle values between train and test)
-scan_noise:
-  service_scan:
-    false_positive_rate: 0.065  # 0.05(train) -> 0.065(bridge) -> 0.08(test)
-    false_negative_rate: 0.125  # 0.10(train) -> 0.125(bridge) -> 0.15(test)
-  os_scan:
-    false_positive_rate: 0.025  # 0.02(train) -> 0.025(bridge) -> 0.03(test)
-    false_negative_rate: 0.065  # 0.05(train) -> 0.065(bridge) -> 0.08(test)
-  process_scan:
-    false_positive_rate: 0.10   # 0.08(train) -> 0.10(bridge) -> 0.12(test)
-    false_negative_rate: 0.175  # 0.15(train) -> 0.175(bridge) -> 0.20(test)
-# Service dynamics configuration for realistic service churn
-# Service dynamics configuration for realistic service churn
-service_dynamics:
-  churn_probability: 0.02  # 2% chance per step per service
-  affected_services: ["80_linux_joomla", "8080_linux_tomcat_mgr", "8081_linux_jenkins", "80_linux_moodle", "80_linux_mediawiki", "8080_windows_iis", "80_windows_iis", "3306_any_mysql", "5432_linux_postgres", "27017_linux_mongodb"]
-  restart_delay: 10  # Steps before service comes back up
-  churn_types:
-    - type: "crash_restart"
-      probability: 0.7
-      down_duration: [5, 15]  # Random between 5-15 steps
-    - type: "maintenance"
-      probability: 0.2
-      down_duration: [20, 40]
-    - type: "permanent_down"
-      probability: 0.1
-      down_duration: [100, 200]
+# Allow all inter-subnet communications along topology
+firewall: _subnets
 
-# Network reliability configuration for realistic packet loss and timeouts
-network_reliability:
-  timeout_probability: 0.03  # 3% chance of timeout
-  affected_actions: ["exploit", "privilege_escalation"]
-  retry_cost: 0  # No extra cost for retry
-  timeout_types:
-    - type: "packet_loss"
-      probability: 0.6
-      duration: 1  # Single step timeout
-    - type: "network_congestion"
-      probability: 0.3
-      duration: [2, 5]  # 2-5 step timeout
-    - type: "routing_issue"
-      probability: 0.1
-      duration: [5, 10]  # 5-10 step timeout
+# Curriculum Learning Configuration - Gradual Progression for Stealth Learning
+# Stage 1: Baseline (Epochs 0-49) - Learn basic strategy without interference
+# Stage 2: Medium Difficulty (Epochs 50-79) - Introduce light realism
+# Stage 3: Full Difficulty (Epochs 80+) - Balanced realism for stealth training
+curriculum:
+  enabled: true
+  stages:
+    # Stage 1: Baseline - No realism (Epochs 0-49) - Learn basic strategy
+    - name: "baseline"
+      start_epoch: 0
+      end_epoch: 999
+      ids:
+        enabled: false
+      scan_noise:
+        service_scan:
+          false_positive_rate: 0.0
+          false_negative_rate: 0.0
+        os_scan:
+          false_positive_rate: 0.0
+          false_negative_rate: 0.0
+        process_scan:
+          false_positive_rate: 0.0
+          false_negative_rate: 0.0
+      network_reliability:
+        timeout_probability: 0.0
+        affected_actions: []
+      service_dynamics:
+        churn_probability: 0.0
+        affected_services: []
+    
+    # Stage 2: Medium difficulty (Epochs 50-79) - Light realism introduction
+    - name: "medium_difficulty"
+      start_epoch: 999
+      end_epoch: 9999
+      ids:
+        enabled: true
+        detection_decay: 0.99  # Slow decay = forgiving
+        base_thresholds: [0.75, 0.92]  # High thresholds = harder to trigger
+        response_types:
+          quarantine: 0.05  # Very low quarantine
+          patch: 0.25
+          monitor: 0.70  # Mostly just monitoring
+        failed_exploit_multiplier: 2.0
+        detection_increase:
+          subnet_scan: 0.008
+          service_scan: 0.02
+          os_scan: 0.012
+          process_scan: 0.012
+          exploit_failed: 0.06
+          exploit_success: 0.03
+          privesc_failed: 0.08
+          privesc_success: 0.04
+      scan_noise:
+        service_scan:
+          false_positive_rate: 0.02  # 2% slight noise
+          false_negative_rate: 0.03  # 3% slight noise
+        os_scan:
+          false_positive_rate: 0.01  # 1% minimal noise
+          false_negative_rate: 0.02  # 2% minimal noise
+        process_scan:
+          false_positive_rate: 0.03  # 3% slight noise
+          false_negative_rate: 0.05  # 5% slight noise
+      network_reliability:
+        timeout_probability: 0.01  # 1% very rare timeouts
+        affected_actions: ["exploit", "privilege_escalation"]
+        retry_cost: 0
+        timeout_types:
+          - type: "packet_loss"
+            probability: 0.8
+            duration: 1
+          - type: "network_congestion"
+            probability: 0.2
+            duration: [2, 3]
+      service_dynamics:
+        churn_probability: 0.005  # 0.5% very rare churn
+        affected_services: ["80_linux_joomla", "8080_linux_tomcat_mgr", "3306_any_mysql"]
+        restart_delay: 8
+        churn_types:
+          - type: "crash_restart"
+            probability: 0.9
+            down_duration: [4, 10]
+          - type: "maintenance"
+            probability: 0.1
+            down_duration: [12, 20]
+    
+    # Stage 3: Full difficulty (Epochs 80+) - Balanced realism for stealth training
+    - name: "full_difficulty"
+      start_epoch: 9999
+      end_epoch: 999999  # Effectively infinite
+      ids:
+        enabled: true
+        detection_decay: 0.98  # Moderate decay
+        base_thresholds: [0.65, 0.88]  # Moderate thresholds - not too sensitive
+        response_types:
+          quarantine: 0.10  # Low quarantine chance
+          patch: 0.35
+          monitor: 0.55
+        failed_exploit_multiplier: 2.5
+        detection_increase:
+          subnet_scan: 0.012
+          service_scan: 0.03
+          os_scan: 0.018
+          process_scan: 0.018
+          exploit_failed: 0.09
+          exploit_success: 0.05
+          privesc_failed: 0.12
+          privesc_success: 0.06
+      scan_noise:
+        service_scan:
+          false_positive_rate: 0.03  # 3% moderate noise for stealth learning
+          false_negative_rate: 0.05  # 5% moderate noise
+        os_scan:
+          false_positive_rate: 0.015  # 1.5% light noise
+          false_negative_rate: 0.03   # 3% light noise
+        process_scan:
+          false_positive_rate: 0.04  # 4% moderate noise
+          false_negative_rate: 0.07  # 7% moderate noise
+      network_reliability:
+        timeout_probability: 0.015  # 1.5% occasional timeouts
+        affected_actions: ["exploit", "privilege_escalation"]
+        retry_cost: 0
+        timeout_types:
+          - type: "packet_loss"
+            probability: 0.7
+            duration: 1
+          - type: "network_congestion"
+            probability: 0.25
+            duration: [2, 4]
+          - type: "routing_issue"
+            probability: 0.05
+            duration: [4, 7]
+      service_dynamics:
+        churn_probability: 0.01  # 1% light churn - not too disruptive
+        affected_services: ["80_linux_joomla", "8080_linux_tomcat_mgr", "8081_linux_jenkins", "3306_any_mysql", "5432_linux_postgres", "27017_linux_mongodb"]
+        restart_delay: 10
+        churn_types:
+          - type: "crash_restart"
+            probability: 0.85  # Most services restart quickly
+            down_duration: [5, 12]
+          - type: "maintenance"
+            probability: 0.15  # Some longer maintenance
+            down_duration: [15, 30]

@@ -106,6 +106,14 @@ def get_args(problem_config):
 	parser.add_argument('-alpha_h', type=float, default=0.3, help="Initial entropy regularization constant")
 	parser.add_argument('-max_norm', type=float, default=3., help="Maximal gradient norm")
 
+	# Learning rate / entropy decay schedules
+	parser.add_argument('--sched_lr_rate', type=int, default=None, help="Steps between LR decay updates")
+	parser.add_argument('--sched_lr_factor', type=float, default=None, help="Exponential LR decay factor")
+	parser.add_argument('--sched_lr_min', type=float, default=None, help="Minimum learning rate")
+	parser.add_argument('--sched_alpha_h_rate', type=int, default=None, help="Steps between entropy coeff. decay updates")
+	parser.add_argument('--sched_alpha_h_factor', type=float, default=None, help="Time-decay factor for entropy coeff.")
+	parser.add_argument('--sched_alpha_h_min', type=float, default=None, help="Minimum entropy coefficient")
+
 	parser.add_argument('--trace', action='store_const', const=True, help="Show trace of the agent")
 	parser.add_argument('--eval', action='store_const', const=True, help="Evaluate the agent")
 	parser.add_argument('--debug', action='store_const', const=True, help="Debug the agent")
