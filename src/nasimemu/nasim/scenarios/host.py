@@ -18,7 +18,10 @@ class Host:
                  compromised=False,
                  reachable=False,
                  discovered=False,
-                 access=0):
+                 access=0,
+                 detection_level=0.0,
+                 detection_threshold=None,
+                 detection_multiplier=1.0):
         """
         Arguments
         ---------
@@ -61,6 +64,9 @@ class Host:
         self.reachable = reachable
         self.discovered = discovered
         self.access = access
+        self.detection_level = detection_level
+        self.detection_threshold = detection_threshold
+        self.detection_multiplier = detection_multiplier
 
     def is_running_service(self, service):
         return self.services[service]

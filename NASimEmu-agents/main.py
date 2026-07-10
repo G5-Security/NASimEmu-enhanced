@@ -191,9 +191,9 @@ if __name__ == '__main__':
 	# ---------------------------
 	# Local per-episode JSON logger
 	# ---------------------------
-	log_dir = os.path.join(os.path.dirname(__file__), 'training_data', 'latest')
+	log_dir = os.path.join(os.path.dirname(__file__), 'training_data', 'runs')
 	os.makedirs(log_dir, exist_ok=True)
-	jsonl_path = os.path.join(log_dir, 'latest.json')
+	jsonl_path = os.path.join(log_dir, f'{wandb.run.id}.json')
 
 	def _append_jsonl(path, obj):
 		try:
@@ -360,13 +360,14 @@ if __name__ == '__main__':
 				'entropy_max': float(_to_serializable(log['entropy_max'])),
 				'lr': float(_to_serializable(log['lr'])),
 				'alpha_h': float(_to_serializable(log['alpha_h'])),
-				'eval_trn': {k: _to_serializable(v) for k, v in log['eval_perf'].get('eval_trn', {}).items()},
-				'eval_tst': {k: _to_serializable(v) for k, v in log['eval_perf'].get('eval_tst', {}).items()},
+				'eval_trn': {k: _to_serializable(v) for k, v in (log['eval_perf'].get('eval_trn') or {}).items()},
+				'eval_tst': {k: _to_serializable(v) for k, v in (log['eval_perf'].get('eval_tst') or {}).items()},
 			}
 			_append_jsonl(jsonl_path, log_json)
 			
 			# save model to wandb
 			model_file = os.path.join(wandb.run.dir, "model.pt")
+			os.makedirs(os.path.dirname(model_file), exist_ok=True)
 			net.save(model_file)
 			wandb.save(model_file)
 		

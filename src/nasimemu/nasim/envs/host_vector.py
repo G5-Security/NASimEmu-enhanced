@@ -168,8 +168,12 @@ class HostVector:
         host_procs = host.processes.items()
         for proc_num, (proc_key, proc_val) in enumerate(host_procs):
             vector[cls._get_process_idx(proc_num)] = int(proc_val) # TODO we should determine process by proc_key, not proc_num
+        detection_threshold = host.detection_threshold
+        if detection_threshold is None:
+            threshold_range = cls.ids_config.get('base_thresholds', [0.7, 0.8])
+            detection_threshold = np.random.uniform(threshold_range[0], threshold_range[1])
         vector[cls._detection_level_idx] = host.detection_level
-        vector[cls._detection_threshold_idx] = host.detection_threshold
+        vector[cls._detection_threshold_idx] = detection_threshold
         vector[cls._detection_multiplier_idx] = host.detection_multiplier
         return cls(vector)
 
@@ -433,7 +437,8 @@ class HostVector:
         # Natural decay (IDS logs rotate, alerts fade)
         decay_rate = self.ids_config.get('detection_decay', 0.98)
         self.detection_level *= decay_rate
-        
+        self.vector[self._detection_level_idx] = self.detection_level
+
         # Check if host triggers alert
         if self.detection_level > self.detection_threshold:
             return 'DETECTED', self._handle_detection()
@@ -491,6 +496,7 @@ class HostVector:
         else:
             # Minor: Increased monitoring (future actions riskier)
             self.detection_multiplier = 2.0
+            self.vector[self._detection_multiplier_idx] = self.detection_multiplier
             return {
                 'type': 'monitor',
                 'penalty': -5,
