@@ -71,6 +71,8 @@ class Object:
 		self.eval_batch = 64
 
 		self.load_model = args.load_model
+		self.save_best_split = getattr(args, 'save_best_split', 'eval_tst')
+		self.save_best_metric = getattr(args, 'save_best_metric', 'captured_avg')
 
 		self.slurm_job_id = os.environ.get('SLURM_JOB_ID')
 

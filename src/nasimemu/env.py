@@ -7,6 +7,7 @@ import nasimemu.nasim.scenarios.benchmark as benchmark
 
 from nasimemu.nasim.envs import NASimEnv
 from nasimemu.nasim.envs.host_vector import HostVector
+from nasimemu.nasim.envs.utils import AccessLevel
 from nasimemu.env_emu import EmulatedNASimEnv
 import traceback 
 import nasimemu.nasim.scenarios.utils as u
@@ -68,13 +69,26 @@ class PartiallyObservableWrapper():
 
 # observation_format in ['matrix', 'graph']
 class NASimEmuEnv(gym.Env):
-    def __init__(self, scenario_name, emulate=False, step_limit=None, random_init=False, observation_format='matrix', fully_obs=False, augment_with_action=False, verbose=False, feature_dropout_p=0.0, dr_prob_jitter=0.0, dr_cost_jitter=0.0, dr_scan_cost_jitter=0.0, 
+    def __init__(self, scenario_name, emulate=False, step_limit=None, random_init=False, observation_format='matrix', fully_obs=False, augment_with_action=False, verbose=False, feature_dropout_p=0.0, dr_prob_jitter=0.0, dr_cost_jitter=0.0, dr_scan_cost_jitter=0.0,
                  training_mode=True,  # Curriculum learning: True=training, False=evaluation
                  # auto scenario generation (plumbing only; no behavior yet)
-                 auto_mode='off', auto_template=None, auto_host_range=None, auto_subnet_count=None, auto_topology=None, auto_sensitive_policy=None, auto_seed_base=None, auto_sensitive_jitter=0.0):
-        # different processes need different seeds
-        random.seed()
-        np.random.seed()
+                 auto_mode='off', auto_template=None, auto_host_range=None, auto_subnet_count=None, auto_topology=None, auto_sensitive_policy=None, auto_seed_base=None, auto_sensitive_jitter=0.0,
+                 seed=None):
+        # Each SubprocVecEnv worker process constructs its envs after fork, so
+        # without an explicit seed we must reseed from fresh OS entropy here --
+        # otherwise every forked process inherits identical `random`/`np.random`
+        # state and produces correlated/duplicate scenario draws across workers.
+        # When an explicit seed IS given (deterministic-repro runs, one distinct
+        # value per parallel env index), it must win outright: a bare no-arg
+        # reseed() here would silently discard the caller's requested
+        # determinism, which is exactly what the old "seed in multiprocessing is
+        # not implemented" gap was.
+        if seed is not None:
+            random.seed(seed)
+            np.random.seed(seed % (2**32))
+        else:
+            random.seed()
+            np.random.seed()
 
         self.emulate = emulate
         self.step_limit = step_limit
@@ -570,8 +584,15 @@ class NASimEmuEnv(gym.Env):
         r /= 10. # reward scaling
         self.r_tot += r
 
-        if r > 0:
-            self.captured += 1
+        # Capture-metric fix (master plan Ch.5 / llm_integration_plan.pdf Phase 0):
+        # count a capture only on the state transition that first grants ROOT access on a
+        # *distinct* sensitive host, not on any step with r > 0 (which also fires for
+        # discovery-value rewards etc. and could double-count). self._captured_addrs is
+        # reset per-episode in reset().
+        for addr in self.env.network.sensitive_hosts.keys():
+            if addr not in self._captured_addrs and self.env.current_state.host_has_access(addr, AccessLevel.ROOT):
+                self._captured_addrs.add(addr)
+                self.captured += 1
 
         if not self.fully_obs:
             s = self.env_po_wrapper.step(s)
@@ -641,6 +662,7 @@ class NASimEmuEnv(gym.Env):
         self.step_idx = 0
         self.r_tot = 0.
         self.captured = 0
+        self._captured_addrs = set()
 
         self._generate_env() # generate new env
 

@@ -38,6 +38,7 @@ from net import Net
 from nasimemu.nasim.envs.host_vector import HostVector
 from rl import ppo
 from .net_utils import compute_v_target, segmented_sample
+from llm_teacher.goal_ontology import GOAL_NAMES, GOAL_ONTOLOGY_VERSION
 
 import wandb
 
@@ -57,6 +58,12 @@ class NASimNetDHRL(Net):
     agents. A manager GNN with recurrent global context selects persistent subgoals,
     while a goal-conditioned worker performs node-level actions.
     """
+
+    # goal_bank's num_subgoals slots are bound to llm_teacher.goal_ontology's
+    # named GOAL_NAMES (index k <-> GOAL_NAMES[k]) -- stamped into every
+    # checkpoint by Net.save/load so a checkpoint trained against one ontology
+    # version can't be silently loaded as if it meant another.
+    ONTOLOGY_VERSION = GOAL_ONTOLOGY_VERSION
 
     def __init__(self):
         super().__init__()
@@ -191,7 +198,7 @@ class NASimNetDHRL(Net):
                 batch_size, self.goal_dim, dtype=torch.float32, device=config.device
             )
 
-    def forward(self, s_batch, only_v=False, force_action=None, reset_hidden=False):
+    def forward(self, s_batch, only_v=False, force_action=None, reset_hidden=False, only_subgoal_logits=False):
         data, data_lens, batch, batch_ind, node_index, pos_index = self.prepare_batch(s_batch)
         x = batch.x
         batch_size = len(data_lens)
@@ -248,6 +255,29 @@ class NASimNetDHRL(Net):
 
         # Subgoal sampling & persistence
         subgoal_logits = self.subgoal_head(x_global)
+
+        # Exposes the named-semantic-goal logits (llm_teacher/goal_ontology.py
+        # GOAL_NAMES[k] <-> subgoal_logits[:, k]) for the LLM-distillation loss
+        # (llm_teacher/distillation_loss.py) without running the sampling/
+        # worker/value machinery below at all -- mirrors the existing only_v
+        # early-return. Only ever called with reset_hidden=True from outside
+        # the PPO rollout (main.py's warm-start/joint-distillation steps), so
+        # it never perturbs the recurrent hidden state of an in-progress
+        # rollout: reset_hidden's save/restore already reallocates persistent
+        # state to this call's batch size and restores the caller's original
+        # state afterwards, regardless of whether the two batch sizes match.
+        if only_subgoal_logits:
+            if reset_hidden:
+                (
+                    self.current_subgoal_idx,
+                    self.subgoal_steps_remaining,
+                    self.current_goal_vec,
+                    self.batch_ind,
+                    self.ep_t,
+                    self.manager_gnn.hidden,
+                ) = saved_state
+            return subgoal_logits
+
         subgoal_probs = torch.softmax(subgoal_logits, dim=-1)
         switch_probs = self.subgoal_switch(x_global).clamp(1e-6, 1 - 1e-6)
 
