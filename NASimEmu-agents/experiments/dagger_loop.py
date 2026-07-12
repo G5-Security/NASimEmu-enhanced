@@ -86,20 +86,26 @@ def _latest_wandb_checkpoint(after_ts):
     return max(fallback_candidates, key=os.path.getmtime)
 
 
+def _compute_target_records(out_dir_abs, records_per_round):
+    """label_states.py's --target_records is an ABSOLUTE floor on the
+    dataset's total valid-record count (it stops once writer.count_valid()
+    reaches it), not "how many new records this call should add". Passing
+    records_per_round directly here would work for round 0 (dataset starts
+    empty) but silently collect ZERO new records in every later round once
+    the dataset already holds >= records_per_round from prior rounds --
+    compute the absolute target explicitly instead. Split out as its own
+    function so the accumulation math is unit-testable without running a
+    real collection subprocess."""
+    existing_valid = DatasetWriter(out_dir_abs).count_valid() if os.path.isdir(out_dir_abs) else 0
+    return existing_valid, existing_valid + records_per_round
+
+
 def run_round(round_idx, args, prev_checkpoint):
     print(f"\n{'='*80}\n[dagger_loop] Round {round_idx}/{args.rounds - 1}\n{'='*80}")
 
     # Step 1-2: collect + aggregate.
-    # label_states.py's --target_records is an ABSOLUTE floor on the dataset's
-    # total valid-record count (it stops once writer.count_valid() reaches
-    # it), not "how many new records this call should add". Passing
-    # --records_per_round directly here would work for round 0 (dataset
-    # starts empty) but silently collect ZERO new records in every later
-    # round once the dataset already holds >= records_per_round from prior
-    # rounds -- compute the absolute target explicitly instead.
     out_dir_abs = args.out_dir if os.path.isabs(args.out_dir) else os.path.join(AGENTS_DIR, args.out_dir)
-    existing_valid = DatasetWriter(out_dir_abs).count_valid() if os.path.isdir(out_dir_abs) else 0
-    target_records = existing_valid + args.records_per_round
+    existing_valid, target_records = _compute_target_records(out_dir_abs, args.records_per_round)
 
     policy = "checkpoint" if prev_checkpoint is not None else "random"
     collect_cmd = [

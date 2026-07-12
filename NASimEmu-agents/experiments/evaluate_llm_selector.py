@@ -198,7 +198,7 @@ def run_episode_live(net, env, step_limit, model, transcript_records, episode_id
         success = bool(r > 0)
         target_str = f"{int(addr[0])}.{int(addr[1])}"
         recent_actions.append({"action": action_name, "target": target_str, "success": success})
-        switch_actions.append({"step": ep_t, "action": action_name, "target": target_str, "success": success})
+        switch_actions.append({"step": ep_t, "action": action_name, "target": target_str, "success": success, "reward": float(r)})
 
         ep_return += float(r)
         ep_t += 1

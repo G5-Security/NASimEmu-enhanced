@@ -8,3 +8,4 @@ scenarios/*.rsc
 scenarios/*.vagrant
 .kiro/*
 .venv/
+venv/
