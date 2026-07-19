@@ -1,0 +1,663 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>IDS model.pt Training Commands</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --background: #0d1117;
+      --panel: #161b22;
+      --panel-border: #30363d;
+      --text: #e6edf3;
+      --muted: #9da7b3;
+      --accent: #2f81f7;
+      --accent-hover: #58a6ff;
+      --success: #3fb950;
+      --warning-bg: #2d2512;
+      --warning-border: #9e6a03;
+      --code-bg: #010409;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--background);
+      color: var(--text);
+      font: 16px/1.55 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    main {
+      width: min(1180px, calc(100% - 32px));
+      margin: 36px auto 72px;
+    }
+
+    h1 {
+      margin-bottom: 8px;
+      font-size: clamp(1.65rem, 4vw, 2.4rem);
+      line-height: 1.2;
+    }
+
+    .subtitle,
+    .details {
+      color: var(--muted);
+    }
+
+    .notice {
+      margin: 24px 0;
+      padding: 16px 18px;
+      border: 1px solid var(--warning-border);
+      border-radius: 10px;
+      background: var(--warning-bg);
+    }
+
+    .toolbar {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      margin: 24px 0;
+      padding: 12px;
+      border: 1px solid var(--panel-border);
+      border-radius: 10px;
+      background: rgba(22, 27, 34, 0.96);
+      backdrop-filter: blur(8px);
+    }
+
+    button {
+      min-height: 38px;
+      padding: 8px 14px;
+      border: 1px solid var(--accent);
+      border-radius: 7px;
+      background: var(--accent);
+      color: white;
+      font: inherit;
+      font-weight: 650;
+      cursor: pointer;
+    }
+
+    button:hover,
+    button:focus-visible {
+      background: var(--accent-hover);
+    }
+
+    button.secondary {
+      border-color: var(--panel-border);
+      background: var(--panel);
+    }
+
+    .status {
+      min-height: 24px;
+      margin-left: auto;
+      color: var(--success);
+      font-weight: 650;
+    }
+
+    .command-card {
+      margin: 24px 0;
+      overflow: hidden;
+      border: 1px solid var(--panel-border);
+      border-radius: 12px;
+      background: var(--panel);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+    }
+
+    .card-header {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px;
+      border-bottom: 1px solid var(--panel-border);
+    }
+
+    .card-header h2 {
+      margin: 0;
+      font-size: 1.15rem;
+    }
+
+    .card-description {
+      margin: 0;
+      padding: 14px 16px 0;
+      color: var(--muted);
+    }
+
+    pre {
+      max-height: 620px;
+      margin: 14px 16px 16px;
+      padding: 18px;
+      overflow: auto;
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+      background: var(--code-bg);
+      white-space: pre;
+      tab-size: 2;
+    }
+
+    code {
+      font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    }
+
+    ul {
+      margin-top: 8px;
+    }
+
+    @media (max-width: 680px) {
+      main {
+        width: min(100% - 18px, 1180px);
+        margin-top: 18px;
+      }
+
+      .status {
+        width: 100%;
+        margin-left: 0;
+      }
+
+      pre {
+        margin: 10px;
+        padding: 12px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>IDS Training and Final <code>model.pt</code> Evaluation Commands</h1>
+    <p class="subtitle">Every card contains one complete command chain. Click its button to copy the entire chain.</p>
+
+    <div class="notice">
+      <strong>Important:</strong> Run only one training command at a time. The repository training lock rejects overlapping trainers. The dedicated PenDHRL comparison below evaluates both <code>model.pt</code> and <code>model_best.pt</code>; the architecture-specific train-and-evaluate commands use final <code>model.pt</code>.
+    </div>
+
+    <section class="details">
+      <strong>200-epoch IDS curriculum:</strong>
+      <ul>
+        <li>Epochs 0–59: baseline with IDS disabled</li>
+        <li>Epochs 60–119: medium IDS</li>
+        <li>Epochs 120–199: full IDS</li>
+        <li>Final <code>main.py --eval</code>: full IDS difficulty</li>
+      </ul>
+    </section>
+
+    <div class="toolbar">
+      <button type="button" id="copy-all">Copy All Commands</button>
+      <button type="button" id="expand-all" class="secondary">Expand All</button>
+      <button type="button" id="collapse-all" class="secondary">Collapse All</button>
+      <span id="global-status" class="status" role="status" aria-live="polite"></span>
+    </div>
+
+    <h2>PenDHRL baseline: fresh start, interruption recovery, and comparison</h2>
+
+    <details class="command-card" open>
+      <summary class="card-header">
+        <h2>P1. Start fresh PenDHRL baseline training</h2>
+        <button type="button" class="copy-command">Copy Entire Command</button>
+      </summary>
+      <p class="card-description">Starts a new 200-epoch, three-scenario PenDHRL baseline with the IDS curriculum. It contains no LLM flags. CPUs 16–31 are the verified training CPU set.</p>
+      <pre><code>cd /home/user5/NASimEmu-enhanced/NASimEmu-agents &amp;&amp; \
+source ../venv/bin/activate &amp;&amp; \
+set -euo pipefail &amp;&amp; \
+PYTHON=../venv/bin/python &amp;&amp; \
+CPUSET=16-31 &amp;&amp; \
+SCENARIOS="../scenarios/corp_100hosts_dynamic.v2.yaml:../scenarios/corp_100hosts_dynamic_varA.v2.yaml:../scenarios/corp_100hosts_dynamic_varB.v2.yaml" &amp;&amp; \
+TEST_SCENARIO="../scenarios/corp_100hosts_dynamic.v2.yaml" &amp;&amp; \
+export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 MPLCONFIGDIR=/tmp/nasimemu-matplotlib WANDB_CACHE_DIR=/tmp/nasimemu-wandb-cache WANDB_MODE=offline WANDB_DIR="$PWD" &amp;&amp; \
+mkdir -p "$MPLCONFIGDIR" "$WANDB_CACHE_DIR" &amp;&amp; \
+taskset -c "$CPUSET" "$PYTHON" main.py \
+  "$SCENARIOS" \
+  --test_scenario "$TEST_SCENARIO" \
+  -device cpu -cpus 8 -batch 128 \
+  -epoch 100 -max_epochs 200 \
+  --no_debug \
+  -net_class NASimNetDHRL \
+  -force_continue_epochs 0 \
+  -use_a_t \
+  -episode_step_limit 400 \
+  -observation_format graph_v2 \
+  -lr 0.0007 -alpha_h 0.02 \
+  --sched_lr_rate 10000 --sched_lr_factor 0.8 --sched_lr_min 0.0003 \
+  --sched_alpha_h_rate 15000 --sched_alpha_h_factor 0.5 --sched_alpha_h_min 0.005 \
+  -seed 1</code></pre>
+    </details>
+
+    <details class="command-card">
+      <summary class="card-header">
+        <h2>P2. Resume PenDHRL after a sudden stop</h2>
+        <button type="button" class="copy-command">Copy Entire Command</button>
+      </summary>
+      <p class="card-description">Resumes the current recovered run <code>6892pgk3</code> from its latest atomic <code>model.pt</code>. Embedded state restores the step, optimizer, target network, schedules, curriculum position, best value, and RNG state. For a future interrupted run, replace only <code>RUN_DIR</code> with that run’s absolute directory.</p>
+      <pre><code>cd /home/user5/NASimEmu-enhanced/NASimEmu-agents &amp;&amp; \
+source ../venv/bin/activate &amp;&amp; \
+set -euo pipefail &amp;&amp; \
+PYTHON=../venv/bin/python &amp;&amp; \
+CPUSET=16-31 &amp;&amp; \
+RUN_DIR="$PWD/wandb/offline-run-20260717_115521-6892pgk3" &amp;&amp; \
+RESUME_CHECKPOINT="$RUN_DIR/files/model.pt" &amp;&amp; \
+SCENARIOS="../scenarios/corp_100hosts_dynamic.v2.yaml:../scenarios/corp_100hosts_dynamic_varA.v2.yaml:../scenarios/corp_100hosts_dynamic_varB.v2.yaml" &amp;&amp; \
+TEST_SCENARIO="../scenarios/corp_100hosts_dynamic.v2.yaml" &amp;&amp; \
+export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 MPLCONFIGDIR=/tmp/nasimemu-matplotlib WANDB_CACHE_DIR=/tmp/nasimemu-wandb-cache WANDB_MODE=offline WANDB_DIR="$PWD" &amp;&amp; \
+mkdir -p "$MPLCONFIGDIR" "$WANDB_CACHE_DIR" &amp;&amp; \
+test -s "$RESUME_CHECKPOINT" &amp;&amp; \
+taskset -c "$CPUSET" "$PYTHON" main.py \
+  "$SCENARIOS" \
+  --test_scenario "$TEST_SCENARIO" \
+  -load_model "$RESUME_CHECKPOINT" \
+  --resume \
+  -device cpu -cpus 8 -batch 128 \
+  -epoch 100 -max_epochs 200 \
+  --no_debug \
+  -net_class NASimNetDHRL \
+  -force_continue_epochs 0 \
+  -use_a_t \
+  -episode_step_limit 400 \
+  -observation_format graph_v2 \
+  -lr 0.0007 -alpha_h 0.02 \
+  --sched_lr_rate 10000 --sched_lr_factor 0.8 --sched_lr_min 0.0003 \
+  --sched_alpha_h_rate 15000 --sched_alpha_h_factor 0.5 --sched_alpha_h_min 0.005 \
+  -seed 1</code></pre>
+    </details>
+
+    <details class="command-card">
+      <summary class="card-header">
+        <h2>P3. Evaluate current model.pt and model_best.pt</h2>
+        <button type="button" class="copy-command">Copy Entire Command</button>
+      </summary>
+      <p class="card-description">Takes stable snapshots from run <code>6892pgk3</code>, then evaluates the two checkpoints sequentially on the verified stable CPUs 16–31. <code>--eval</code> automatically selects full IDS difficulty. Results are saved as separate logs.</p>
+      <pre><code>cd /home/user5/NASimEmu-enhanced/NASimEmu-agents &amp;&amp; \
+source ../venv/bin/activate &amp;&amp; \
+set -euo pipefail &amp;&amp; \
+PYTHON=../venv/bin/python &amp;&amp; \
+CPUSET=16-31 &amp;&amp; \
+RUN_DIR="$PWD/wandb/offline-run-20260717_115521-6892pgk3" &amp;&amp; \
+SCENARIOS="../scenarios/corp_100hosts_dynamic.v2.yaml:../scenarios/corp_100hosts_dynamic_varA.v2.yaml:../scenarios/corp_100hosts_dynamic_varB.v2.yaml" &amp;&amp; \
+TEST_SCENARIO="../scenarios/corp_100hosts_dynamic.v2.yaml" &amp;&amp; \
+STAMP="$(date +%Y%m%d_%H%M%S)" &amp;&amp; \
+SNAPSHOT_DIR="$PWD/training_data/eval_snapshots/pendhrl_6892pgk3_${STAMP}" &amp;&amp; \
+RESULT_DIR="$PWD/training_data/eval_results/pendhrl_6892pgk3_${STAMP}" &amp;&amp; \
+mkdir -p "$SNAPSHOT_DIR" "$RESULT_DIR" /tmp/nasimemu-matplotlib /tmp/nasimemu-wandb-cache &amp;&amp; \
+test -s "$RUN_DIR/files/model.pt" &amp;&amp; \
+test -s "$RUN_DIR/files/model_best.pt" &amp;&amp; \
+cp "$RUN_DIR/files/model.pt" "$SNAPSHOT_DIR/model.pt" &amp;&amp; \
+cp "$RUN_DIR/files/model_best.pt" "$SNAPSHOT_DIR/model_best.pt" &amp;&amp; \
+test -s "$SNAPSHOT_DIR/model.pt" &amp;&amp; \
+test -s "$SNAPSHOT_DIR/model_best.pt" &amp;&amp; \
+export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 MPLCONFIGDIR=/tmp/nasimemu-matplotlib WANDB_CACHE_DIR=/tmp/nasimemu-wandb-cache WANDB_MODE=offline WANDB_DIR="$PWD" &amp;&amp; \
+for CHECKPOINT_NAME in model.pt model_best.pt; do \
+  CHECKPOINT="$SNAPSHOT_DIR/$CHECKPOINT_NAME"; \
+  LOG_NAME="${CHECKPOINT_NAME%.pt}.log"; \
+  echo "=== FULL-IDS DYNAMIC EVALUATION: $CHECKPOINT_NAME ==="; \
+  taskset -c "$CPUSET" "$PYTHON" main.py \
+    "$SCENARIOS" \
+    --test_scenario "$TEST_SCENARIO" \
+    --eval \
+    -load_model "$CHECKPOINT" \
+    -device cpu -cpus 8 -batch 16 \
+    -net_class NASimNetDHRL \
+    -use_a_t \
+    -episode_step_limit 400 \
+    -observation_format graph_v2 \
+    -seed 1 2&gt;&amp;1 | tee "$RESULT_DIR/$LOG_NAME"; \
+done &amp;&amp; \
+echo "=== BOTH EVALUATIONS COMPLETE ===" &amp;&amp; \
+echo "Snapshots: $SNAPSHOT_DIR" &amp;&amp; \
+echo "Results:   $RESULT_DIR"</code></pre>
+    </details>
+
+    <h2>Additional architecture and LLM commands</h2>
+
+    <details class="command-card" open>
+      <summary class="card-header">
+        <h2>1. GNN-LSTM: train and evaluate final model.pt</h2>
+        <button type="button" class="copy-command">Copy Entire Command</button>
+      </summary>
+      <pre><code>cd /home/user5/NASimEmu-enhanced/NASimEmu-agents &amp;&amp; \
+source ../venv/bin/activate &amp;&amp; \
+PYTHON=../venv/bin/python &amp;&amp; \
+CPUSET=16-31 &amp;&amp; \
+SCENARIOS="../scenarios/corp_100hosts_dynamic.v2.yaml:../scenarios/corp_100hosts_dynamic_varA.v2.yaml:../scenarios/corp_100hosts_dynamic_varB.v2.yaml" &amp;&amp; \
+TEST_SCENARIO="../scenarios/corp_100hosts_dynamic.v2.yaml" &amp;&amp; \
+export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 MPLCONFIGDIR=/tmp/nasimemu-matplotlib WANDB_CACHE_DIR=/tmp/nasimemu-wandb-cache WANDB_MODE=offline WANDB_DIR="$PWD" &amp;&amp; \
+mkdir -p "$MPLCONFIGDIR" "$WANDB_CACHE_DIR" &amp;&amp; \
+taskset -c "$CPUSET" "$PYTHON" main.py \
+  "$SCENARIOS" \
+  --test_scenario "$TEST_SCENARIO" \
+  -device cpu -cpus 8 -batch 128 \
+  -epoch 100 -max_epochs 200 \
+  --no_debug \
+  -net_class NASimNetGNN_LSTM \
+  -mp_iterations 2 \
+  -augment_with_action \
+  -force_continue_epochs 150 \
+  -use_a_t \
+  -episode_step_limit 400 \
+  -observation_format graph_v2 \
+  -lr 0.0007 -alpha_h 0.02 \
+  --sched_lr_rate 10000 --sched_lr_factor 0.8 --sched_lr_min 0.0003 \
+  --sched_alpha_h_rate 15000 --sched_alpha_h_factor 0.5 --sched_alpha_h_min 0.005 \
+  -seed 1 &amp;&amp; \
+GNN_RUN_DIR="$(readlink -f wandb/latest-run)" &amp;&amp; \
+GNN_CHECKPOINT="$GNN_RUN_DIR/files/model.pt" &amp;&amp; \
+test -s "$GNN_CHECKPOINT" &amp;&amp; \
+echo "=== GNN-LSTM COMPLETE: full-IDS evaluation of $GNN_CHECKPOINT ===" &amp;&amp; \
+taskset -c "$CPUSET" "$PYTHON" main.py \
+  "$SCENARIOS" \
+  --test_scenario "$TEST_SCENARIO" \
+  --eval \
+  -load_model "$GNN_CHECKPOINT" \
+  -device cpu -cpus 8 -batch 16 \
+  -net_class NASimNetGNN_LSTM \
+  -mp_iterations 2 \
+  -augment_with_action \
+  -use_a_t \
+  -episode_step_limit 400 \
+  -observation_format graph_v2 \
+  -seed 1</code></pre>
+    </details>
+
+    <details class="command-card">
+      <summary class="card-header">
+        <h2>2. Invariant: train and evaluate final model.pt</h2>
+        <button type="button" class="copy-command">Copy Entire Command</button>
+      </summary>
+      <pre><code>cd /home/user5/NASimEmu-enhanced/NASimEmu-agents &amp;&amp; \
+source ../venv/bin/activate &amp;&amp; \
+PYTHON=../venv/bin/python &amp;&amp; \
+CPUSET=16-31 &amp;&amp; \
+SCENARIOS="../scenarios/corp_100hosts_dynamic.v2.yaml:../scenarios/corp_100hosts_dynamic_varA.v2.yaml:../scenarios/corp_100hosts_dynamic_varB.v2.yaml" &amp;&amp; \
+TEST_SCENARIO="../scenarios/corp_100hosts_dynamic.v2.yaml" &amp;&amp; \
+export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 MPLCONFIGDIR=/tmp/nasimemu-matplotlib WANDB_CACHE_DIR=/tmp/nasimemu-wandb-cache WANDB_MODE=offline WANDB_DIR="$PWD" &amp;&amp; \
+mkdir -p "$MPLCONFIGDIR" "$WANDB_CACHE_DIR" &amp;&amp; \
+taskset -c "$CPUSET" "$PYTHON" main.py \
+  "$SCENARIOS" \
+  --test_scenario "$TEST_SCENARIO" \
+  -device cpu -cpus 8 -batch 128 \
+  -epoch 100 -max_epochs 200 \
+  --no_debug \
+  -net_class NASimNetInvMAct \
+  -augment_with_action \
+  -force_continue_epochs 150 \
+  -use_a_t \
+  -episode_step_limit 400 \
+  -observation_format list \
+  -lr 0.0007 -alpha_h 0.02 \
+  --sched_lr_rate 10000 --sched_lr_factor 0.8 --sched_lr_min 0.0003 \
+  --sched_alpha_h_rate 15000 --sched_alpha_h_factor 0.5 --sched_alpha_h_min 0.005 \
+  -seed 1 &amp;&amp; \
+INV_RUN_DIR="$(readlink -f wandb/latest-run)" &amp;&amp; \
+INV_CHECKPOINT="$INV_RUN_DIR/files/model.pt" &amp;&amp; \
+test -s "$INV_CHECKPOINT" &amp;&amp; \
+echo "=== INVARIANT COMPLETE: full-IDS evaluation of $INV_CHECKPOINT ===" &amp;&amp; \
+taskset -c "$CPUSET" "$PYTHON" main.py \
+  "$SCENARIOS" \
+  --test_scenario "$TEST_SCENARIO" \
+  --eval \
+  -load_model "$INV_CHECKPOINT" \
+  -device cpu -cpus 8 -batch 16 \
+  -net_class NASimNetInvMAct \
+  -augment_with_action \
+  -use_a_t \
+  -episode_step_limit 400 \
+  -observation_format list \
+  -seed 1</code></pre>
+    </details>
+
+    <details class="command-card">
+      <summary class="card-header">
+        <h2>3. Attention: train and evaluate final model.pt</h2>
+        <button type="button" class="copy-command">Copy Entire Command</button>
+      </summary>
+      <pre><code>cd /home/user5/NASimEmu-enhanced/NASimEmu-agents &amp;&amp; \
+source ../venv/bin/activate &amp;&amp; \
+PYTHON=../venv/bin/python &amp;&amp; \
+CPUSET=16-31 &amp;&amp; \
+SCENARIOS="../scenarios/corp_100hosts_dynamic.v2.yaml:../scenarios/corp_100hosts_dynamic_varA.v2.yaml:../scenarios/corp_100hosts_dynamic_varB.v2.yaml" &amp;&amp; \
+TEST_SCENARIO="../scenarios/corp_100hosts_dynamic.v2.yaml" &amp;&amp; \
+export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 MPLCONFIGDIR=/tmp/nasimemu-matplotlib WANDB_CACHE_DIR=/tmp/nasimemu-wandb-cache WANDB_MODE=offline WANDB_DIR="$PWD" &amp;&amp; \
+mkdir -p "$MPLCONFIGDIR" "$WANDB_CACHE_DIR" &amp;&amp; \
+taskset -c "$CPUSET" "$PYTHON" main.py \
+  "$SCENARIOS" \
+  --test_scenario "$TEST_SCENARIO" \
+  -device cpu -cpus 8 -batch 128 \
+  -epoch 100 -max_epochs 200 \
+  --no_debug \
+  -net_class NASimNetXAttMAct \
+  -augment_with_action \
+  -force_continue_epochs 150 \
+  -use_a_t \
+  -episode_step_limit 400 \
+  -observation_format list \
+  -lr 0.0007 -alpha_h 0.02 \
+  --sched_lr_rate 10000 --sched_lr_factor 0.8 --sched_lr_min 0.0003 \
+  --sched_alpha_h_rate 15000 --sched_alpha_h_factor 0.5 --sched_alpha_h_min 0.005 \
+  -seed 1 &amp;&amp; \
+ATT_RUN_DIR="$(readlink -f wandb/latest-run)" &amp;&amp; \
+ATT_CHECKPOINT="$ATT_RUN_DIR/files/model.pt" &amp;&amp; \
+test -s "$ATT_CHECKPOINT" &amp;&amp; \
+echo "=== ATTENTION COMPLETE: full-IDS evaluation of $ATT_CHECKPOINT ===" &amp;&amp; \
+taskset -c "$CPUSET" "$PYTHON" main.py \
+  "$SCENARIOS" \
+  --test_scenario "$TEST_SCENARIO" \
+  --eval \
+  -load_model "$ATT_CHECKPOINT" \
+  -device cpu -cpus 8 -batch 16 \
+  -net_class NASimNetXAttMAct \
+  -augment_with_action \
+  -use_a_t \
+  -episode_step_limit 400 \
+  -observation_format list \
+  -seed 1</code></pre>
+    </details>
+
+    <details class="command-card">
+      <summary class="card-header">
+        <h2>4. Distilled LLM: train and evaluate final model.pt</h2>
+        <button type="button" class="copy-command">Copy Entire Command</button>
+      </summary>
+      <pre><code>cd /home/user5/NASimEmu-enhanced/NASimEmu-agents &amp;&amp; \
+source ../venv/bin/activate &amp;&amp; \
+PYTHON=../venv/bin/python &amp;&amp; \
+CPUSET=16-31 &amp;&amp; \
+SCENARIOS="../scenarios/corp_100hosts_dynamic.v2.yaml:../scenarios/corp_100hosts_dynamic_varA.v2.yaml:../scenarios/corp_100hosts_dynamic_varB.v2.yaml" &amp;&amp; \
+TEST_SCENARIO="../scenarios/corp_100hosts_dynamic.v2.yaml" &amp;&amp; \
+LLM_DATASET=training_data/llm_teacher_dataset &amp;&amp; \
+export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 MPLCONFIGDIR=/tmp/nasimemu-matplotlib WANDB_CACHE_DIR=/tmp/nasimemu-wandb-cache WANDB_MODE=offline WANDB_DIR="$PWD" &amp;&amp; \
+mkdir -p "$MPLCONFIGDIR" "$WANDB_CACHE_DIR" &amp;&amp; \
+test -s "$LLM_DATASET/dataset.jsonl" &amp;&amp; \
+test -s "$LLM_DATASET/dataset_states.pkl" &amp;&amp; \
+taskset -c "$CPUSET" "$PYTHON" main.py \
+  "$SCENARIOS" \
+  --test_scenario "$TEST_SCENARIO" \
+  -device cpu -cpus 8 -batch 128 \
+  -epoch 100 -max_epochs 200 \
+  --no_debug \
+  -net_class NASimNetDHRL \
+  -force_continue_epochs 0 \
+  -use_a_t \
+  -episode_step_limit 400 \
+  -observation_format graph_v2 \
+  -lr 0.0007 -alpha_h 0.02 \
+  --sched_lr_rate 10000 --sched_lr_factor 0.8 --sched_lr_min 0.0003 \
+  --sched_alpha_h_rate 15000 --sched_alpha_h_factor 0.5 --sched_alpha_h_min 0.005 \
+  -seed 1 \
+  --llm_distill \
+  --llm_distill_dataset "$LLM_DATASET" \
+  --llm_distill_split train \
+  --llm_distill_warmup_epochs 3 \
+  --llm_distill_rl_only_frac 0.1 &amp;&amp; \
+DIST_RUN_DIR="$(readlink -f wandb/latest-run)" &amp;&amp; \
+DIST_CHECKPOINT="$DIST_RUN_DIR/files/model.pt" &amp;&amp; \
+test -s "$DIST_CHECKPOINT" &amp;&amp; \
+echo "=== DISTILLED TRAINING COMPLETE: full-IDS evaluation of $DIST_CHECKPOINT ===" &amp;&amp; \
+taskset -c "$CPUSET" "$PYTHON" main.py \
+  "$SCENARIOS" \
+  --test_scenario "$TEST_SCENARIO" \
+  --eval \
+  -load_model "$DIST_CHECKPOINT" \
+  -device cpu -cpus 8 -batch 16 \
+  -net_class NASimNetDHRL \
+  -use_a_t \
+  -episode_step_limit 400 \
+  -observation_format graph_v2 \
+  -seed 1</code></pre>
+    </details>
+
+    <details class="command-card">
+      <summary class="card-header">
+        <h2>5. Live LLM DAgger: train and evaluate final-round model.pt</h2>
+        <button type="button" class="copy-command">Copy Entire Command</button>
+      </summary>
+      <p class="card-description">Requires Ollama running locally and the <code>qwen2.5:3b-instruct</code> model already pulled. Performs three DAgger rounds and then standard full-IDS evaluation.</p>
+      <pre><code>cd /home/user5/NASimEmu-enhanced/NASimEmu-agents &amp;&amp; \
+source ../venv/bin/activate &amp;&amp; \
+PYTHON=../venv/bin/python &amp;&amp; \
+CPUSET=16-31 &amp;&amp; \
+SCENARIOS="../scenarios/corp_100hosts_dynamic.v2.yaml:../scenarios/corp_100hosts_dynamic_varA.v2.yaml:../scenarios/corp_100hosts_dynamic_varB.v2.yaml" &amp;&amp; \
+TEST_SCENARIO="../scenarios/corp_100hosts_dynamic.v2.yaml" &amp;&amp; \
+export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 MPLCONFIGDIR=/tmp/nasimemu-matplotlib WANDB_CACHE_DIR=/tmp/nasimemu-wandb-cache WANDB_MODE=offline WANDB_DIR="$PWD" &amp;&amp; \
+mkdir -p "$MPLCONFIGDIR" "$WANDB_CACHE_DIR" &amp;&amp; \
+command -v ollama &gt;/dev/null &amp;&amp; \
+curl -fsS http://127.0.0.1:11434/api/tags &gt;/dev/null &amp;&amp; \
+ollama list | grep -Fq 'qwen2.5:3b-instruct' &amp;&amp; \
+taskset -c "$CPUSET" "$PYTHON" experiments/dagger_loop.py \
+  --rounds 3 \
+  --records_per_round 700 \
+  --scenario "$SCENARIOS" \
+  --teacher_backend llm \
+  --model qwen2.5:3b-instruct \
+  --out_dir training_data/llm_teacher_dataset \
+  --checkpoint_dir training_data/dagger_checkpoints \
+  --train_args "$SCENARIOS --test_scenario $TEST_SCENARIO -device cpu -cpus 8 -batch 128 -epoch 100 -max_epochs 200 --no_debug -net_class NASimNetDHRL -force_continue_epochs 0 -use_a_t -episode_step_limit 400 -observation_format graph_v2 -lr 0.0007 -alpha_h 0.02 --sched_lr_rate 10000 --sched_lr_factor 0.8 --sched_lr_min 0.0003 --sched_alpha_h_rate 15000 --sched_alpha_h_factor 0.5 --sched_alpha_h_min 0.005 -seed 1 --llm_distill --llm_distill_warmup_epochs 3 --llm_distill_rl_only_frac 0.1" &amp;&amp; \
+LIVE_RUN_DIR="$(readlink -f wandb/latest-run)" &amp;&amp; \
+LIVE_CHECKPOINT="$LIVE_RUN_DIR/files/model.pt" &amp;&amp; \
+test -s "$LIVE_CHECKPOINT" &amp;&amp; \
+echo "=== LIVE LLM DAGGER COMPLETE: full-IDS evaluation of $LIVE_CHECKPOINT ===" &amp;&amp; \
+taskset -c "$CPUSET" "$PYTHON" main.py \
+  "$SCENARIOS" \
+  --test_scenario "$TEST_SCENARIO" \
+  --eval \
+  -load_model "$LIVE_CHECKPOINT" \
+  -device cpu -cpus 8 -batch 16 \
+  -net_class NASimNetDHRL \
+  -use_a_t \
+  -episode_step_limit 400 \
+  -observation_format graph_v2 \
+  -seed 1</code></pre>
+    </details>
+
+    <details class="command-card">
+      <summary class="card-header">
+        <h2>6. Optional live-versus-distilled selector comparison</h2>
+        <button type="button" class="copy-command">Copy Entire Command</button>
+      </summary>
+      <p class="card-description">Run after command 5 for five paired episodes with real Ollama calls. This is separate from command 5's standard full-IDS evaluation.</p>
+      <pre><code>cd /home/user5/NASimEmu-enhanced/NASimEmu-agents &amp;&amp; \
+source ../venv/bin/activate &amp;&amp; \
+PYTHON=../venv/bin/python &amp;&amp; \
+CPUSET=16-31 &amp;&amp; \
+SCENARIOS="../scenarios/corp_100hosts_dynamic.v2.yaml:../scenarios/corp_100hosts_dynamic_varA.v2.yaml:../scenarios/corp_100hosts_dynamic_varB.v2.yaml" &amp;&amp; \
+export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 MPLCONFIGDIR=/tmp/nasimemu-matplotlib WANDB_CACHE_DIR=/tmp/nasimemu-wandb-cache WANDB_MODE=offline WANDB_DIR="$PWD" &amp;&amp; \
+LIVE_RUN_DIR="$(readlink -f wandb/latest-run)" &amp;&amp; \
+LIVE_CHECKPOINT="$LIVE_RUN_DIR/files/model.pt" &amp;&amp; \
+test -s "$LIVE_CHECKPOINT" &amp;&amp; \
+command -v ollama &gt;/dev/null &amp;&amp; \
+curl -fsS http://127.0.0.1:11434/api/tags &gt;/dev/null &amp;&amp; \
+taskset -c "$CPUSET" "$PYTHON" experiments/evaluate_llm_selector.py \
+  --checkpoint_path "$LIVE_CHECKPOINT" \
+  --scenario "$SCENARIOS" \
+  --n_episodes 5 \
+  --step_limit 400 \
+  --model qwen2.5:3b-instruct</code></pre>
+    </details>
+  </main>
+
+  <script>
+    const statusElement = document.getElementById('global-status');
+    let statusTimer;
+
+    function showStatus(message, isError = false) {
+      clearTimeout(statusTimer);
+      statusElement.textContent = message;
+      statusElement.style.color = isError ? '#f85149' : '#3fb950';
+      statusTimer = setTimeout(() => {
+        statusElement.textContent = '';
+      }, 3500);
+    }
+
+    async function copyText(text) {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        return;
+      }
+
+      const temporary = document.createElement('textarea');
+      temporary.value = text;
+      temporary.setAttribute('readonly', '');
+      temporary.style.position = 'fixed';
+      temporary.style.opacity = '0';
+      document.body.appendChild(temporary);
+      temporary.select();
+      temporary.setSelectionRange(0, temporary.value.length);
+      const copied = document.execCommand('copy');
+      temporary.remove();
+
+      if (!copied) {
+        throw new Error('The browser blocked clipboard access.');
+      }
+    }
+
+    document.querySelectorAll('.copy-command').forEach((button, index) => {
+      button.addEventListener('click', async (event) => {
+        event.preventDefault();
+        const card = button.closest('.command-card');
+        const command = card.querySelector('pre code').textContent.trim();
+        const originalLabel = button.textContent;
+
+        try {
+          await copyText(command);
+          button.textContent = 'Copied!';
+          showStatus(`Command ${index + 1} copied.`);
+          setTimeout(() => {
+            button.textContent = originalLabel;
+          }, 1800);
+        } catch (error) {
+          showStatus(`${error.message} Select the command and press Ctrl+C.`, true);
+        }
+      });
+    });
+
+    document.getElementById('copy-all').addEventListener('click', async () => {
+      const commandElements = Array.from(document.querySelectorAll('.command-card pre code'));
+      const commands = commandElements
+        .map((element, index) => `# Command ${index + 1}\n${element.textContent.trim()}`)
+        .join('\n\n');
+
+      try {
+        await copyText(commands);
+        showStatus(`All ${commandElements.length} commands copied.`);
+      } catch (error) {
+        showStatus(`${error.message} Copy the commands individually.`, true);
+      }
+    });
+
+    document.getElementById('expand-all').addEventListener('click', () => {
+      document.querySelectorAll('.command-card').forEach((card) => {
+        card.open = true;
+      });
+    });
+
+    document.getElementById('collapse-all').addEventListener('click', () => {
+      document.querySelectorAll('.command-card').forEach((card) => {
+        card.open = false;
+      });
+    });
+  </script>
+</body>
+</html>

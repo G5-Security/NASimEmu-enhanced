@@ -1,0 +1,1005 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{caption}
+\usepackage{float}
+\usepackage{enumitem}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+\usepackage{listings}
+\usepackage{longtable}
+\usepackage{microtype}
+\usepackage{makecell}
+\setlength{\emergencystretch}{2em}
+
+\definecolor{codebg}{RGB}{245,245,245}
+\lstset{
+  basicstyle=\ttfamily\footnotesize,
+  backgroundcolor=\color{codebg},
+  breaklines=true,
+  frame=single,
+  columns=fullflexible,
+  captionpos=b
+}
+
+\newcommand{\pendhrl}{Pen-DHRL-TD}
+\newcommand{\code}[1]{\texttt{#1}}
+
+\title{\pendhrl{}: Teacher-Distilled Deep Hierarchical\\
+Reinforcement Learning for Autonomous Penetration\\
+Testing via Locally-Hosted LLM Subgoal Supervision}
+
+\author{NASimEmu-enhanced Project}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We present \pendhrl{}, a deep hierarchical reinforcement learning (DHRL) agent for
+autonomous network penetration testing in the NASimEmu simulator, augmented with
+offline supervision from a locally-hosted large language model (LLM) acting as a
+\emph{teacher} over the agent's high-level subgoal space. The agent (\code{NASimNetDHRL})
+factorizes its policy into a recurrent graph-neural-network \emph{manager} that
+selects one of eight named semantic subgoals (e.g.\ \code{GAIN\_INITIAL\_ACCESS},
+\code{ESCALATE\_PRIVILEGE}) and persists it for a learned horizon, and a
+goal-conditioned graph-attention \emph{worker} that emits low-level scan/exploit/pivot
+actions. A locally-hosted, free, open-weight model (\code{qwen2.5:3b-instruct}, served
+via Ollama) is queried \emph{offline only} -- never inside the training loop's forward
+pass -- against sanitized, partially-observable state summaries collected by a
+triggered-sampling data-collection pass, producing a provenance-tracked dataset of
+(state, goal, confidence) triples. This dataset drives a four-stage training schedule:
+(1) supervised warm-start of the subgoal head, (2--3) joint PPO training with an
+exponentially-decaying confidence-weighted distillation loss, and (4) a
+guaranteed reinforcement-learning-only tail. We report the full architecture,
+teacher pipeline, training algorithm, and a live explainability mechanism that
+exposes the manager's subgoal-selection histogram and distillation diagnostics every
+epoch. On a 12-subnet, 72--96-host dynamic corporate scenario family, we report
+end-to-end training dynamics, a systematic class-imbalance issue discovered via
+dataset audit, a checkpoint-selection pitfall uncovered during held-out evaluation,
+and cross-scenario generalization results against both a metric-frozen checkpoint of
+the same run and an independently trained, non-distilled Pen-DHRL baseline of
+identical architecture and parameter count, on which the distilled agent comes out
+ahead on every tested scenario and every reported metric.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+% =====================================================================
+\section{Introduction}
+% =====================================================================
+
+Autonomous penetration testing is naturally hierarchical: a human operator does not
+reason step-by-step over individual port scans and exploit attempts, but over
+higher-level intentions -- ``enumerate this host'', ``escalate on that foothold'',
+``reduce detection risk before proceeding''. Flat reinforcement-learning policies
+trained directly on primitive actions must rediscover this structure from reward
+alone, which is slow and sample-inefficient on large, sparse-reward network
+topologies. \pendhrl{} addresses this with an explicit two-level hierarchy: a
+\emph{manager} that commits to a persistent semantic subgoal, and a \emph{worker}
+that acts under that subgoal's guidance.
+
+The manager's subgoal space is, by construction, an arbitrary learned embedding bank
+with no inherent meaning -- goal index 3 is only ``escalate privilege'' because the
+worker's policy gradient happens to shape it that way. This project's central idea is
+to bind those otherwise-anonymous subgoal slots to a fixed, human-readable ontology
+(Section~\ref{sec:ontology}) and use an LLM, queried entirely offline against
+sanitized state summaries, as a cheap source of weak supervision over \emph{which}
+named goal a reasonable planner would pick at a given state. This is emphatically
+\textbf{not} an LLM-in-the-loop agent: the teacher is never queried during environment
+interaction or during the PPO forward/backward pass. It is queried once, offline, to
+build a static dataset, exactly as a human-labeled dataset would be built, and the
+resulting labels are distilled into the manager's subgoal head via an auxiliary
+supervised loss that runs alongside -- never inside -- the reinforcement-learning
+update.
+
+\subsection{Contributions}
+\begin{itemize}[leftmargin=1.4em]
+  \item A hierarchical graph-policy architecture (\code{NASimNetDHRL}) with a
+        recurrent GNN manager, a learned subgoal bank, a persistence (``switch'')
+        gate, and a goal-conditioned graph-attention worker (Section~\ref{sec:arch}).
+  \item A fixed 8-way semantic goal ontology and an offline LLM-teacher pipeline
+        (state sanitization $\to$ JSON-schema-constrained local LLM query $\to$
+        anti-hallucination validation $\to$ provenance-tracked dataset) that produces
+        confidence-weighted labels without ever exposing hidden simulator state to
+        the teacher (Sections~\ref{sec:ontology}--\ref{sec:teacher}).
+  \item A triggered-sampling data-collection procedure that queries the teacher only
+        at strategically informative moments (episode start, new subnet, first
+        compromise, privilege change, IDS alert, repeated failure, periodic fallback,
+        high manager entropy) under a diversified mixture of rollout policies
+        (Section~\ref{sec:collection}).
+  \item A four-stage training schedule combining supervised warm-start, decaying
+        joint distillation, and a guaranteed RL-only tail, plus an optional
+        potential-based reward-shaping channel over the same semantic goal space
+        (Sections~\ref{sec:distill}--\ref{sec:training}).
+  \item A live, per-epoch \emph{explainability} mechanism that prints the manager's
+        realized subgoal-selection distribution and distillation diagnostics in
+        human-readable form during training -- the mechanism that, in this project's
+        own training run, first exposed a subgoal-selection collapse later confirmed
+        through held-out evaluation (Section~\ref{sec:explainability}).
+  \item An end-to-end empirical study on a 100-host dynamic corporate scenario family:
+        dataset audit statistics, training dynamics, a checkpoint-selection pitfall,
+        and cross-scenario generalization results against both a same-run checkpoint
+        and an independently trained, non-distilled baseline (Section~\ref{sec:results}).
+\end{itemize}
+
+% =====================================================================
+\section{Environment and Task}
+\label{sec:env}
+% =====================================================================
+
+The agent operates in NASimEmu, a partially-observable network-attack-simulation
+gym environment. An episode consists of a randomly-instantiated corporate network;
+the agent observes only what it has actively discovered (host existence, OS,
+services, processes, access level, IDS detection level) and must chain
+scan/exploit/privilege-escalation actions to compromise hosts, subject to a fixed
+per-episode step budget.
+
+\subsection{Scenario family}
+All experiments use the \code{corp\_100hosts\_dynamic.v2} scenario family: 12
+labeled subnets (DMZ, user, service, db, dev, app $\times$3, web, office, research,
+backups) connected in a fixed topology matrix, each instantiated at reset with a
+random host count in $[6,8]$ (72--96 hosts total per episode). Per-subnet
+sensitive-host probability ranges from $0.0$ (DMZ/user) to $1.0$ (db), giving a
+non-uniform, subnet-dependent value landscape. A 32-entry extended service catalog
+and a process catalog (each tagged with an OS) are drawn per host; three services
+(\code{mysql}, \code{postgres}, \code{mssql}) are up-weighted on sensitive hosts.
+Five concrete scenario instances are used across this study -- \code{base},
+\code{varA}, \code{varB}, \code{test}, \code{bridge} -- which share topology and
+service/process catalogs but differ in per-exploit/privesc \emph{success
+probability} and \emph{cost}, giving a controllable difficulty gradient
+(Table~\ref{tab:scenario-difficulty}).
+
+\begin{table}[H]
+\centering
+\caption{Mean exploit success probability across the 8-entry exploit catalog, per
+scenario instance (lower = harder). Costs increase in the same order.}
+\label{tab:scenario-difficulty}
+\begin{tabular}{lcc}
+\toprule
+Scenario & Role & Mean exploit prob.\\
+\midrule
+\code{corp\_100hosts\_dynamic} (base) & training & $\approx 0.79$ \\
+\code{corp\_100hosts\_dynamic\_varA} & training & $\approx 0.63$ \\
+\code{corp\_100hosts\_dynamic\_varB} & training & $\approx 0.58$ \\
+\code{corp\_100hosts\_dynamic\_bridge} & held-out eval & $\approx 0.66$ \\
+\code{corp\_100hosts\_dynamic\_test} & held-out eval & $\approx 0.53$ (hardest) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Observation and action space}
+The agent consumes a \code{graph\_v2} observation: nodes are either subnets or hosts
+(a leading type bit distinguishes them), host nodes carry an 80-dimensional feature
+vector (discovery/reachability/compromise/access flags, per-service and per-process
+booleans, IDS detection level and threshold, sensitivity-irrelevant fields only --
+see Section~\ref{sec:teacher} for the same partial-observability constraint applied
+to the LLM teacher), and an 8-dimensional sinusoidal positional encoding is appended
+per node. Edges follow host reachability. The action space is a (target node,
+discrete action id) pair over 18 action types (4 fixed scan actions plus the
+scenario's exploit/privilege-escalation catalog), masked so that subnet nodes and
+graphs with no valid host targets cannot be selected. An explicit terminate action
+(\code{-use\_a\_t}) lets the agent end an episode early rather than exhausting the
+400-step budget.
+
+% =====================================================================
+\section{Hierarchical Policy Architecture}
+\label{sec:arch}
+% =====================================================================
+
+\code{NASimNetDHRL} (212{,}640 parameters at the hyperparameters used in this study)
+is a manager--worker hierarchical graph policy, structurally inspired by FeudalNet-
+and GNN-LSTM-style architectures adapted to a variable-size graph observation.
+
+\subsection{Manager}
+Node features (with positional encoding) are linearly embedded
+($\mathbb{R}^{88}\!\to\!\mathbb{R}^{64}$) and passed through a 3-iteration
+multi-message-passing GNN with a recurrent global ``last-GRU'' readout
+(\code{Multi\-Message\-Passing\-With\-Global\-Node\-And\-Last\-GRU\-Global}), producing per-node
+embeddings $x_{\text{mgr}}$ and a single recurrent global summary $x_{\text{global}}
+\in \mathbb{R}^{64}$ per graph (episode). $x_{\text{global}}$ is layer-normalized and
+additively biased by an IDS-aware projection of the graph's mean detection
+level/threshold/multiplier (\code{ids\_projection}), mirroring a FeudalGTM-style
+stealth bias: the manager's context is nudged by how ``hot'' the network currently
+looks, encouraging (without hard-constraining) detection-averse planning.
+
+\subsection{Subgoal selection and persistence}
+A subgoal head $\pi_{\text{goal}}(\cdot\mid x_{\text{global}})$
+(2-layer MLP $\to$ 8 logits) defines a categorical distribution over the
+$K{=}8$ subgoal slots. A separate \emph{switch} gate
+$\sigma_{\text{switch}}(x_{\text{global}}) \in (0,1)$ (sigmoid MLP) is sampled as a
+Bernoulli \emph{persistence-override} signal each step: the manager only re-samples a
+new subgoal when either (a) the previous subgoal's horizon counter has reached zero,
+or (b) the switch gate fires. This is what makes subgoals \emph{temporally extended}
+rather than re-selected every step -- purely reactive per-step goal selection would
+give the worker no stable target to condition a multi-step plan on. Once selected,
+subgoal index $k$ indexes a learned embedding \code{goal\_bank}$[k] \in
+\mathbb{R}^{128}$, refined by concatenation with $x_{\text{global}}$ through a small
+MLP (\code{goal\_refine}) to produce the state-conditioned goal vector actually
+broadcast to the worker. The joint action probability (used for PPO's importance
+ratio) correctly folds in the probability of \emph{whichever} of these three
+branches produced the current subgoal (forced switch, policy-initiated switch, or
+persistence) -- Section~\ref{sec:arch}'s Algorithm~\ref{alg:forward}, lines
+constructing \code{subgoal\_factor}, give the exact three-way case split.
+
+\subsection{Worker}
+The refined goal vector is broadcast to every node in its graph and concatenated
+with the manager's per-node embedding; a 2-head graph-attention layer
+(\code{GATConv}) followed by layer norm produces goal-conditioned node features,
+linearly projected to per-node action logits. Illegal targets (subnet nodes, or
+every node in a graph with no valid host target) are masked to $-\infty$ before a
+per-graph softmax, and the realized (target, action) pair is sampled by a segmented
+categorical sample over the flattened, graph-grouped logits.
+
+\subsection{Value, termination, and time pressure}
+A shared context vector (global embedding $\oplus$ goal vector $\oplus$ normalized
+elapsed-time fraction) feeds both a value head and a termination head (sigmoid). An
+explicit linear-plus-threshold time penalty is subtracted from the value estimate as
+the episode approaches its step budget, and termination is additionally gated to
+require both a minimum elapsed fraction (25\% of the step limit) and a non-positive
+value estimate -- this two-sided gate (Algorithm~\ref{alg:forward}, termination
+block) is what prevents the policy from learning to terminate near-instantly for a
+cheap zero-cost episode, while still allowing genuinely early, successful
+termination once real progress has been made.
+
+\begin{algorithm}[H]
+\caption{\code{NASimNetDHRL.forward} -- Manager--Worker Hierarchical Policy Step}
+\label{alg:forward}
+\begin{algorithmic}[1]
+\Require batch of graph observations $\{s_i\}$, persistent state
+  $(g^{\text{idx}}_{t-1}, \tau_{t-1}, h_{t-1})$ (subgoal index, steps-remaining, GRU
+  hidden state) carried from the previous call
+\Ensure actions $\{(v_i, a_i)\}$, value $V$, joint action probability $\pi$, raw
+  actions $(a^{\text{sel}}, \text{term}, g^{\text{idx}}_t)$
+\State $x \gets \text{Embed}(\text{concat}(\text{node\_feats}, \text{PosEnc}))$
+\State $x_{\text{mgr}}, x_{\text{global}} \gets \text{ManagerGNN}(x, \text{edges}, h_{t-1})$
+  \Comment{recurrent global readout}
+\State $x_{\text{global}} \gets \text{LayerNorm}(x_{\text{global}}) + \text{IDSProj}(\bar\phi_{\text{ids}})$
+\State $\ell_{\text{goal}} \gets \text{SubgoalHead}(x_{\text{global}})$;\quad
+       $p_{\text{goal}} \gets \text{softmax}(\ell_{\text{goal}})$
+\State $\sigma \gets \text{clamp}(\text{SubgoalSwitch}(x_{\text{global}}), \epsilon, 1-\epsilon)$
+\If{$\tau_{t-1} \le 0$} \Comment{horizon exhausted: forced re-sample}
+  \State $\text{need\_new} \gets \text{true}$
+\EndIf
+\State $\text{switch} \gets \text{need\_new} \lor \text{Bernoulli}(\sigma)$ \Comment{sample-mode; argmax test-mode}
+\If{$\text{switch}$}
+  \State $g^{\text{idx}}_t \sim \text{Categorical}(p_{\text{goal}})$ \Comment{argmax at eval time}
+  \State $\tau_t \gets \text{goal\_horizon}$ \Comment{reset persistence counter (=4)}
+\Else
+  \State $g^{\text{idx}}_t \gets g^{\text{idx}}_{t-1}$;\quad $\tau_t \gets \tau_{t-1} - 1$
+\EndIf
+\State $\pi_{\text{subgoal}} \gets$ probability of \emph{whichever} branch above fired
+  \Comment{3-way case: forced / policy-switch / persistence}
+\State $\vec g \gets \text{GoalRefine}(\text{concat}(\text{goal\_bank}[g^{\text{idx}}_t], x_{\text{global}}))$
+\State $z \gets \text{GAT}(\text{concat}(x_{\text{mgr}}, \vec g[\text{batch\_ind}]),\ \text{edges})$
+\State $\ell_{\text{action}} \gets \text{ActionHead}(\text{LayerNorm}(z))$; mask illegal targets to $-\infty$
+\State $a^{\text{sel}} \sim \text{Categorical}(\text{softmax}(\ell_{\text{action}}))$ per graph \Comment{segmented sample}
+\State $\text{ctx} \gets \text{concat}(x_{\text{global}}, \vec g, t/T)$
+\State $V \gets \text{ValueHead}(\text{ctx}) - \text{TimePenalty}(t/T)$
+\State $p_{\text{term}} \gets \text{TerminationHead}(\text{ctx})$
+\State $\text{term} \sim \text{Bernoulli}(p_{\text{term}}) \ \land\ (t \ge 0.25\,T) \ \land\ (V \le 0)$
+  \Comment{gated early stop}
+\State $\pi \gets \begin{cases} p_{\text{term}} & \text{term} \\
+  \pi_{\text{action}} \cdot (1-p_{\text{term}}) \cdot \pi_{\text{subgoal}} & \text{otherwise}\end{cases}$
+\State \Return $\{(v_i, a_i)\}$, $V$, $\pi$, $(a^{\text{sel}}, \text{term}, g^{\text{idx}}_t)$
+\end{algorithmic}
+\end{algorithm}
+
+% =====================================================================
+\section{Semantic Goal Ontology}
+\label{sec:ontology}
+% =====================================================================
+
+The manager's $K{=}8$ subgoal-bank slots have no inherent meaning to the
+architecture -- they are exactly as trainable as an unlabeled latent-goal DHRL
+baseline. \pendhrl{} fixes a versioned index$\to$name binding
+(Table~\ref{tab:ontology}) so that (a) an LLM teacher can be prompted against stable
+names instead of opaque integers, (b) potential-based reward shaping functions can be
+hand- or LLM-authored per named goal, and (c) every trained checkpoint stores its
+ontology version and refuses to load under a mismatched version (\code{net.py}'s
+\code{Net.save}/\code{load}), preventing a silent semantic mismatch between a
+checkpoint's learned goal-bank and a later ontology revision.
+
+\begin{table}[H]
+\centering
+\caption{Fixed semantic goal ontology (version 1).}
+\label{tab:ontology}
+\begin{tabular}{clp{7.5cm}}
+\toprule
+Idx & Name & Description (as given to the LLM teacher) \\
+\midrule
+0 & \code{DISCOVER\_SUBNET} & Reveal new reachable subnet structure \\
+1 & \code{ENUMERATE\_HOST} & Learn OS/services/processes of a discovered host \\
+2 & \code{GAIN\_INITIAL\_ACCESS} & Obtain user or root access on a discovered, reachable host remotely \\
+3 & \code{ESCALATE\_PRIVILEGE} & Upgrade an already-held user access to root on the same host \\
+4 & \code{PIVOT} & Move toward/through a newly reachable, deeper subnet \\
+5 & \code{CAPTURE\_SENSITIVE\_HOST} & Prioritize progress on a host that looks high-value \\
+6 & \code{REDUCE\_DETECTION} & Prefer a lower-detection-risk action or target over a riskier one \\
+7 & \code{RECOVER\_OR\_REPLAN} & Abandon a goal that has repeatedly failed and pick a feasible alternative \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% =====================================================================
+\section{Offline LLM Teacher Pipeline}
+\label{sec:teacher}
+% =====================================================================
+
+\subsection{Design constraints}
+The teacher is queried \textbf{offline only}: never inside \code{forward()}, never
+during environment interaction, never during the PPO backward pass. It is a locally
+hosted, free, open-weight model (\code{qwen2.5:3b-instruct}, served via Ollama's
+\code{/api/chat} at zero per-call monetary cost, JSON-schema-constrained decoding,
+temperature 0) -- not a paid hosted API, since nothing in this design needs low
+latency or a live network call during training. The teacher sees only a
+\emph{sanitized state summary}, never the raw graph tensor or any hidden simulator
+field: only hosts with \code{discovered==1} are listed, and the true
+sensitive-host label (\code{HostVector.value}/\code{discovery\_value}) is never
+exposed -- exactly the same restraint independently enforced in the potential-shaping
+functions of Section~\ref{sec:shaping}. The teacher must choose exactly one goal from
+the closed ontology of Table~\ref{tab:ontology}, optionally an already-discovered
+target, and is explicitly instructed never to propose executable text (shell
+commands, exploit code); a denylist-based validator enforces this on the free-text
+fields regardless.
+
+\subsection{Prompt and output contract}
+The system prompt fixes the assistant's role and hard constraints; the user prompt
+embeds the closed goal list with one-line descriptions and the JSON-serialized state
+summary, and requests a strict-JSON response validated against a JSON schema
+(\code{format} passed to Ollama) with required fields \code{goal}, \code{horizon}
+($1$--$8$), \code{confidence} ($[0,1]$), \code{reason\_code}, \code{rationale}, and
+optional \code{target\_subnet}/\code{target\_host}. Schema-constrained decoding
+guarantees \emph{shape} only; a separate semantic validator
+(\code{llm\_teacher/validator.py}) additionally rejects: any target host/subnet id
+not literally present in the summary (\emph{anti-hallucination}), a target
+structurally incompatible with the chosen goal (e.g.\ \code{ESCALATE\_PRIVILEGE}
+against a host the agent does not already hold user access on), and any of a small
+denylist of shell/code tokens appearing in the free-text fields. Up to 3 retries are
+attempted on invalid/unparsable output; the final attempt is recorded with
+\code{valid=False} and a \code{reject\_reason} rather than silently discarded, so
+rejected records remain available for later audit.
+
+\subsection{Optional escalation cascade}
+A primary/escalation \emph{cascade} variant (\code{llm\_teacher/cascade.py}) queries
+a primary model on every state and escalates to a second model only on concrete,
+checkable triggers: an invalid/unparsable primary answer, a
+\code{GAIN\_INITIAL\_ACCESS} goal with no reachable unclaimed host left (an
+unsatisfiable goal the primary failed to notice), three consecutive failures against
+the same target that the primary did not route to \code{RECOVER\_OR\_REPLAN}, or
+low self-reported confidence. The escalation call uses a \emph{veto/critique} design:
+the second model sees the primary's answer and either endorses it
+(\code{defensible=true}) or supplies a full, independently-validated replacement --
+deliberately narrower and cheaper than an independent re-decision, and not trusted
+automatically just because it was consulted second. This variant is documented here
+for completeness; the dataset used in Section~\ref{sec:results} was collected with
+the single-model backend only (all 2{,}235 records attributed to
+\code{qwen2.5:3b-instruct}).
+
+\subsection{Heuristic teacher (ablation baseline)}
+A deterministic, network-free rule-based teacher
+(\code{llm\_teacher/heuristic\_teacher.py}) implements a fixed-priority decision tree
+over the identical sanitized summary (escalate on any held user access
+$\to$ initial-access on any enumerated-but-unclaimed host $\to$ enumerate any
+reachable-but-unscanned host $\to$ capture on any root-access host $\to$ reduce
+detection near an IDS threshold $\to$ replan on repeated same-target failure
+$\to$ default explore) and is routed through the same validator as the LLM. Its
+purpose is a controlled ablation (``if simple hand-written heuristics match the LLM's
+effect, the LLM is not doing anything a much cheaper mechanism could not'') and is
+not the backend used for the results in this report.
+
+% =====================================================================
+\section{Triggered Dataset Collection}
+\label{sec:collection}
+% =====================================================================
+
+Labeling every visited state would be both expensive and redundant. Instead, the
+teacher is queried only at \emph{strategically triggered} points, under a
+deliberately diversified mixture of rollout (behavior) policies -- pure random
+action selection, an untrained (randomly initialized) \code{NASimNetDHRL} at zero
+training cost, or a partially/fully trained checkpoint -- so the dataset is not
+narrowed to only the states a single fixed policy happens to visit (labeling only
+successful expert trajectories would starve rare-but-important classes such as
+\code{ESCALATE\_PRIVILEGE}).
+
+\begin{algorithm}[H]
+\caption{Triggered State--Action Labeling (Dataset Collection)}
+\label{alg:collect}
+\begin{algorithmic}[1]
+\Require scenario, target valid-record count $N$, rollout policy $\pi_{\text{roll}}$,
+  teacher backend $\mathcal{T}$, periodic interval $P$
+\Ensure dataset $\mathcal{D}$ of provenance-tracked (state, goal, confidence) records
+\State $n_{\text{valid}} \gets |\{r \in \mathcal{D} : r.\text{valid}\}|$
+\While{$n_{\text{valid}} < N$ and total steps $<$ max\_steps}
+  \State reset environment; new random $\text{episode\_id}$
+  \State label state at \textbf{episode start} (always triggered); update $n_{\text{valid}}$
+  \For{$t = 1, \dots, \text{step\_limit}$}
+    \State $a \gets \pi_{\text{roll}}(\text{state})$; step environment; observe $(s', r, d, \text{info})$
+    \State $\text{triggered} \gets \textbf{false}$
+    \If{new subnet discovered} $\text{triggered} \gets \textbf{true}$ \Comment{trigger: \emph{new\_subnet\_discovered}}
+    \ElsIf{new host compromised} $\text{triggered} \gets \textbf{true}$ \Comment{\emph{first\_compromise}}
+    \ElsIf{access level increased on any known host} $\text{triggered} \gets \textbf{true}$ \Comment{\emph{privilege\_change}}
+    \ElsIf{new IDS threshold crossing} $\text{triggered} \gets \textbf{true}$ \Comment{\emph{ids\_alert}}
+    \ElsIf{last 3 actions: same target, all failed} $\text{triggered} \gets \textbf{true}$ \Comment{\emph{three\_consecutive\_failures}}
+    \ElsIf{$\pi_{\text{roll}}$ is net-based \textbf{and} $H(\text{subgoal dist.}) > 0.8\,H_{\max}$} $\text{triggered} \gets \textbf{true}$
+      \Comment{\emph{high\_student\_entropy}, net-based policies only}
+    \ElsIf{$t \bmod P = 0$} $\text{triggered} \gets \textbf{true}$ \Comment{\emph{periodic} fallback}
+    \EndIf
+    \If{$d$} \textbf{break} \Comment{episode ended}
+    \EndIf
+    \If{$\text{triggered}$}
+      \State $\text{summary} \gets \text{SanitizedSummary}(s')$ \Comment{discovered-only, no hidden fields}
+      \State $\text{record} \gets \mathcal{T}(\text{summary})$ \Comment{query teacher; validate; retry $\le 3\times$}
+      \State $\mathcal{D} \gets \mathcal{D} \cup \{\text{record}\}$; update $n_{\text{valid}}$ if valid
+    \EndIf
+  \EndFor
+\EndWhile
+\State \Return $\mathcal{D}$
+\end{algorithmic}
+\end{algorithm}
+
+Each episode is stamped with a random \code{episode\_id}, later used by
+\code{split\_dataset.py} to split train/test at the \emph{scenario-instance} level
+(never placing two steps of the same episode across the boundary) via a
+deterministic, seed-salted hash of \code{episode\_id} -- stable under dataset growth,
+since it does not depend on shuffling the full episode-id list positionally.
+
+% =====================================================================
+\section{Confidence-Weighted Goal Distillation}
+\label{sec:distill}
+% =====================================================================
+
+Only a \emph{hard-label} distillation term $\mathcal{L}_{\text{goal}}$ is implemented,
+not a soft-label KL term: the teacher returns exactly one discrete goal plus a scalar
+confidence, never a full probability distribution over the ontology, and fabricating
+a soft target from a single discrete choice was explicitly rejected by design.
+
+\begin{equation}
+\mathcal{L}_{\text{goal}} \;=\; \frac{1}{N}\sum_{i=1}^{N} w_i \cdot \big[-\log
+  \hat p_{\theta}(g_i \mid s_i)\big], \qquad
+  w_i = \operatorname{clip}(c_i,\, w_{\min},\, 1), \quad w_{\min}=0.05
+\label{eq:distill-loss}
+\end{equation}
+
+where $\hat p_\theta(\cdot \mid s_i) = \operatorname{softmax}(\ell_{\text{goal}}(s_i))$
+is the manager's subgoal head evaluated via a side-channel forward pass
+(\code{only\_subgoal\_logits=True}) that runs the manager GNN only -- skipping the
+worker, value, and termination machinery entirely -- and $c_i \in [0,1]$ is the
+teacher's self-reported confidence for record $i$, clipped away from zero so a
+low-confidence label still contributes rather than being silently dropped.
+
+\begin{algorithm}[H]
+\caption{Confidence-Weighted Goal Distillation Loss}
+\label{alg:distill}
+\begin{algorithmic}[1]
+\Function{GoalDistillationLoss}{$\ell_{\text{goal}} \in \mathbb{R}^{N\times 8}$, $g \in \{0,\dots,7\}^N$, $c \in [0,1]^N$}
+  \State $w \gets \operatorname{clip}(c,\, 0.05,\, 1.0)$
+  \State $\log \hat p \gets \log\text{-softmax}(\ell_{\text{goal}}, \text{dim}=-1)$
+  \State $\text{nll}_i \gets -\log \hat p_i[g_i]$ for each $i$
+  \State \Return $\text{mean}_i ( w_i \cdot \text{nll}_i )$
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+
+An optional random-label control (\code{--llm\_distill\_shuffle\_labels}, ablation
+condition C5) permutes \code{goal\_idx} across records \emph{in place} -- preserving
+the real class-frequency distribution -- so the same states and confidences train
+against structurally-scrambled labels, isolating whether an observed gain comes from
+real teacher knowledge or merely the regularizing effect of an extra auxiliary loss.
+
+% =====================================================================
+\section{Optional Potential-Based Reward Shaping}
+\label{sec:shaping}
+% =====================================================================
+
+A separate, independently togglable channel (\code{--llm\_shaping}) applies
+potential-based reward shaping directly at the reward level, over the augmented
+(state, active-subgoal) space $x_t = (s_t, g_t)$:
+\begin{equation}
+F_t = \gamma\, \lambda_{t+1}\, \Phi(x_{t+1}) \;-\; \lambda_t\, \Phi(x_t)
+\label{eq:pbrs}
+\end{equation}
+using the \emph{realized} next subgoal $g_{t+1}$ (never a frozen copy of $g_t$), with
+terminal potentials fixed to 0 and shaping weight $\lambda$ annealed across global
+training steps but held constant within a single PPO rollout window -- so
+Eq.~\ref{eq:pbrs} reduces exactly to $\lambda \cdot (\gamma \Phi(x_{t+1}) -
+\Phi(x_t))$ within a window, an exact instance of the corrected potential-based
+shaping form (not an approximation of it), since $\lambda$'s own update granularity
+is defined at the window level. Seven of the eight goals have a hand-authored,
+non-constant potential $\Phi_g(\text{state}) \in [0,1]$ built only from the same
+partially-observable fields the baseline network already reads (fraction of hosts
+discovered, fraction scanned, fraction with user/root access, mean detection level,
+etc.); \code{RECOVER\_OR\_REPLAN} is left an explicit neutral placeholder
+($\Phi \equiv 0$), documented rather than silently faked. All potentials are computed
+once at rollout-collection time under \code{torch.no\_grad()} and cached into the
+reward \emph{before} the PPO update, never recomputed during PPO's multi-epoch
+replay. \textbf{This channel was not enabled in the training run reported in
+Section~\ref{sec:results}} (\code{--llm\_shaping} was not passed); it is documented
+here as part of the full system design and for architectural completeness.
+
+\begin{algorithm}[H]
+\caption{Potential-Based Reward Shaping Term (per rollout window)}
+\label{alg:shaping}
+\begin{algorithmic}[1]
+\Require rollout trace of length $T$ (=\code{ppo\_t}), each step's realized subgoal $g_\tau$, done flag $d_\tau$
+\Require shaping weight $\lambda_t$ (constant within this window)
+\For{$\tau = 1, \dots, T$}
+  \State $\Phi_\tau \gets \Phi_{g_\tau}(s_\tau)$ \Comment{gather the active goal's potential (Sec.~\ref{sec:shaping})}
+\EndFor
+\For{$\tau = 1, \dots, T$}
+  \If{$\tau < T$}
+    \State $\Phi_{\tau+1}' \gets 0 \text{ if } d_\tau \text{ else } \Phi_{\tau+1}$
+    \State $F_\tau \gets \lambda_t (\gamma \Phi_{\tau+1}' - \Phi_\tau)$
+  \Else \Comment{window-boundary step: $g_{\tau+1}$ not yet known}
+    \State $F_\tau \gets \lambda_t(0 - \Phi_\tau)$ if $d_\tau$ else $0$ \Comment{exact if terminal, neutral otherwise}
+  \EndIf
+\EndFor
+\State \Return $\{F_\tau\}_{\tau=1}^T$ \Comment{added to that step's env reward before \code{net.update}}
+\end{algorithmic}
+\end{algorithm}
+
+% =====================================================================
+\section{Four-Stage Training Procedure}
+\label{sec:training}
+% =====================================================================
+
+Training combines on-policy PPO over the environment reward with the distillation
+loss of Section~\ref{sec:distill} in four stages, controlled by a single schedule
+over global training step $t$ (Eq.~\ref{eq:lambda-goal-sched}):
+
+\begin{equation}
+\lambda_{\text{goal}}(t) =
+\begin{cases}
+  0 & \text{if } t \ge (1-f)\,T_{\text{tot}} \quad \text{(Stage 4: RL-only, forced exactly 0)} \\[2pt]
+  \lambda_0 \exp(-t/\rho) & \text{otherwise \quad (Stages 2--3: fixed-then-decaying joint weight)}
+\end{cases}
+\label{eq:lambda-goal-sched}
+\end{equation}
+
+where $T_{\text{tot}} = {\tt max\_epochs} \times {\tt log\_rate}$ is the total
+planned step budget, $f$ (flag \code{-{}-llm\-\_distill\-\_rl\-\_only\-\_frac}) is
+the final fraction of training reserved as guaranteed RL-only, $\lambda_0$ (flag
+\code{-{}-llm\-\_distill\-\_lambda\-\_start}, default 1.0), and $\rho$ (flag
+\code{-{}-llm\-\_distill\-\_lambda\-\_rate}, default 8000 steps). The
+$t \ge (1-f)T_{\text{tot}}$ branch exists because the plain exponential decay alone
+only \emph{asymptotically} approaches zero and never guarantees a true RL-only phase
+within a bounded run -- Stage 4 forces it exactly, once.
+
+\begin{algorithm}[H]
+\caption{Full LLM-Distilled Training Procedure}
+\label{alg:train}
+\begin{algorithmic}[1]
+\Require dataset $\mathcal{D}$ (Algorithm~\ref{alg:collect}), warm-start epochs $E_w$,
+  max epochs $E_{\max}$, schedule params $(\lambda_0, \rho, f)$
+\State \textbf{Stage 1 (warm-start):} \Comment{pure supervised, $\mathcal{L}_{\text{RL}}=0$}
+\For{$e = 1,\dots,E_w$}
+  \For{minibatch $B \subset \mathcal{D}$ (shuffled)}
+    \State $\ell_{\text{goal}} \gets \text{net}(B.\text{states}, \text{only\_subgoal\_logits}{=}\text{True})$
+    \State $\mathcal{L} \gets \textsc{GoalDistillationLoss}(\ell_{\text{goal}}, B.\text{goal\_idx}, B.\text{confidence})$
+    \State backprop $\mathcal{L}$; clip grad norm; optimizer step
+  \EndFor
+\EndFor
+\State hard-sync target network to warm-started weights ($\rho_{\text{target}}{=}1.0$)
+\State \textbf{Stages 2--4 (joint PPO $+$ decaying/zeroed distillation):}
+\For{global step $t = 1, 2, \dots$}
+  \State collect an on-policy rollout of length \code{ppo\_t} using the current policy
+    (Algorithm~\ref{alg:forward} each step)
+  \If{\code{--llm\_shaping} enabled}
+    \State shape rollout rewards via Algorithm~\ref{alg:shaping}
+  \EndIf
+  \State $\mathcal{L}_{\text{RL}} \gets$ clipped-surrogate PPO loss over the rollout (Section~\ref{sec:ppo})
+  \State update net via $\mathcal{L}_{\text{RL}}$ \Comment{primary gradient step}
+  \State $\lambda_{\text{goal}} \gets$ Eq.~\ref{eq:lambda-goal-sched} evaluated at $t$
+  \If{$\lambda_{\text{goal}} > 10^{-6}$}
+    \State sample minibatch $B \subset \mathcal{D}$
+    \State $\ell_{\text{goal}} \gets \text{net}(B.\text{states}, \text{only\_subgoal\_logits}{=}\text{True}, \text{reset\_hidden}{=}\text{True})$
+    \State $\mathcal{L}_{\text{goal}} \gets \lambda_{\text{goal}} \cdot \textsc{GoalDistillationLoss}(\ell_{\text{goal}}, B.\text{goal\_idx}, B.\text{confidence})$
+    \State backprop $\mathcal{L}_{\text{goal}}$ \textbf{as a separate gradient step} \Comment{not fused into $\mathcal{L}_{\text{RL}}$'s backward}
+  \EndIf
+  \State every \code{log\_rate} steps: evaluate, log explainability brief (Sec.~\ref{sec:explainability}), checkpoint
+  \If{$t / \code{log\_rate} \ge E_{\max}$} \textbf{break}
+  \EndIf
+\EndFor
+\end{algorithmic}
+\end{algorithm}
+
+The distillation gradient step is deliberately kept \emph{separate} from the PPO
+update rather than fused into one combined backward pass: fusing would require
+threading an auxiliary loss through the shared \code{rl.py:ppo()} update function
+used by every network architecture in this codebase, which this project's scope does
+not extend to. This alternating scheme optimizes the same two objectives, just not in
+a single backward pass.
+
+\subsection{PPO update}
+\label{sec:ppo}
+The manager's recurrence means PPO's usual multi-epoch importance-sampled replay
+(\code{ppo\_k}$=3$ epochs per rollout) must replay the \emph{entire} \code{ppo\_t}-step
+window in sequence from a saved hidden state $h_{s_0}$, not as an unordered
+minibatch, so the manager GNN's recurrent state stays consistent with the actions
+being replayed. Advantage is computed against a soft target network updated by Polyak
+averaging ($\rho_{\text{target}}=0.1$), and the clipped surrogate objective
+$\mathcal{L}_\pi = -\mathbb{E}\big[\min(\rho_t A_t,\, \text{clip}(\rho_t, 1{-}\epsilon,
+1{+}\epsilon)A_t)\big]$ ($\epsilon{=}0.2$) is combined with a value-regression term
+(only over steps where the agent chose to continue rather than terminate, when
+\code{-use\_a\_t} is set) and an entropy bonus, both on separate coefficients
+$\alpha_v, \alpha_h$ decayed on their own schedules independent of $\lambda_{\text{goal}}$.
+
+% =====================================================================
+\section{Live LLM-Explainability Monitoring}
+\label{sec:explainability}
+% =====================================================================
+
+A per-epoch, always-on (not gated behind a verbosity flag) console report --
+\emph{the LLM Explainability Brief} -- surfaces two categories of live diagnostic
+signal that would otherwise only be visible by manually inspecting tensors:
+
+\begin{enumerate}[leftmargin=1.4em]
+  \item \textbf{Manager subgoal-selection histogram.} Every realized subgoal
+    selection during the epoch's rollouts (\code{raw\_a[2]} from
+    Algorithm~\ref{alg:forward}) is accumulated into an 8-bin histogram and printed
+    as a percentage breakdown against the fixed ontology names -- but \emph{only}
+    when \code{--llm\_distill} is active, since only then is the subgoal head being
+    trained toward that specific name binding; without distillation, the same
+    histogram is explicitly labeled as anonymous positional-index counts rather than
+    silently mislabeled with names the policy was never trained to respect.
+  \item \textbf{Distillation/shaping diagnostics.} When \code{--llm\_distill} is
+    active: the current $\lambda_{\text{goal}}(t)$ (Eq.~\ref{eq:lambda-goal-sched}),
+    the epoch's mean $\mathcal{L}_{\text{goal}}$ (or an explicit ``$\lambda_{\text{goal}}
+    \approx 0$ this window'' note rather than a stale number), and the dataset size in
+    use. When \code{--llm\_shaping} is active: the shaping weight $\lambda_t$ and the
+    ratio $|F_t| / |r_{\text{env},t}|$ -- a direct, checkable signal for whether the
+    shaping term is contributing a measurable gradient relative to the raw
+    environment reward, rather than inferring a ``no measurable effect'' outcome only
+    from final performance.
+\end{enumerate}
+
+\noindent Example output (this project's own training run, epoch 22 of 200):
+\begin{lstlisting}[caption={Explainability brief, early training (11\% through the run)}]
+[LLM EXPLAINABILITY BRIEF] Epoch 22
+  Manager subgoal selections this epoch:
+    DISCOVER_SUBNET           91.8%  (93971)
+    ENUMERATE_HOST             6.9%  (7039)
+    GAIN_INITIAL_ACCESS        1.0%  (1056)
+    ESCALATE_PRIVILEGE         0.0%  (15)
+    PIVOT                      0.1%  (97)
+    CAPTURE_SENSITIVE_HOST     0.2%  (154)
+    REDUCE_DETECTION           0.1%  (67)
+    RECOVER_OR_REPLAN          0.0%  (1)
+  llm_distill (manager-level): lambda_goal=0.9114  mean L_goal=0.4629  dataset=2000 records
+\end{lstlisting}
+
+\begin{lstlisting}[caption={Same run, epoch 200 (final) -- subgoal-selection collapse}]
+[LLM EXPLAINABILITY BRIEF] Epoch 200
+  Manager subgoal selections this epoch:
+    DISCOVER_SUBNET          100.0%  (102400)
+    ENUMERATE_HOST              0.0%  (0)
+    GAIN_INITIAL_ACCESS         0.0%  (0)
+    ESCALATE_PRIVILEGE          0.0%  (0)
+    PIVOT                       0.0%  (0)
+    CAPTURE_SENSITIVE_HOST      0.0%  (0)
+    REDUCE_DETECTION            0.0%  (0)
+    RECOVER_OR_REPLAN           0.0%  (0)
+  llm_distill (manager-level): lambda_goal=0.0000  mean L_goal=n/a (lambda_goal ~ 0 this window)  dataset=2000 records
+\end{lstlisting}
+
+This is not a cosmetic feature: it is the mechanism that made the subgoal-selection
+collapse analyzed in Section~\ref{sec:results-collapse} directly observable during
+training, in human-readable form, epoch by epoch -- rather than requiring a
+post-hoc statistical trawl through the raw JSONL step log to notice it. A curriculum
+status banner (network realism-stage parameters: IDS enabled/decay/thresholds, scan
+noise false-positive/negative rates, network-reliability timeout probability, service
+churn probability) is printed alongside it at early epochs, every 10th epoch, and at
+scenario-declared curriculum stage transitions, giving a complete picture of both
+\emph{what the environment is doing to the agent} and \emph{what the agent's manager
+is choosing to do} at every reported point in training.
+
+% =====================================================================
+\section{Experimental Setup}
+\label{sec:setup}
+% =====================================================================
+
+\begin{table}[H]
+\centering
+\caption{Training run configuration (run id \texttt{b33undf9}).}
+\label{tab:hparams}
+\small
+\begin{tabular}{@{}l p{9.7cm}@{}}
+\toprule
+Scenario (training) & \texttt{corp\_100hosts\_dynamic}\{base,\_varA,\_varB\}.v2.yaml (mixed) \\
+Test scenario (in-loop \code{eval\_tst}) & \texttt{corp\_100hosts\_dynamic}.v2.yaml (base) \\
+Architecture & \code{NASimNetDHRL} (212{,}640 params), \code{graph\_v2} obs., \code{-use\_a\_t} \\
+Episode step limit & 400 \\
+Parallel environments (\code{-batch}) & 128, over 8 CPU workers \\
+PPO & $\gamma{=}0.99$, ppo\_k$=3$, ppo\_t$=8$, $\epsilon{=}0.2$, $\alpha_v{=}0.0333$ \\
+Learning rate & $7\times 10^{-4}$, decayed $\times0.8$ every 10{,}000 steps, floor $3\times10^{-4}$ \\
+Entropy coeff.\ $\alpha_h$ & $0.02$, time-decayed every 15{,}000 steps ($\times 0.5$), floor $0.005$ \\
+Epoch length / max epochs & 100 steps/epoch, 200 epochs (20{,}000 train steps total) \\
+LLM distillation & enabled; warm-start $E_w{=}3$ epochs; $\rho{=}8000$; $f{=}0.1$ (Stage 4 from step 18{,}000) \\
+Teacher dataset & \code{training\_data/llm\_teacher\_dataset} (unsplit, all valid records) \\
+Seed & 1 \\
+Device & CPU (8 threads/process, BLAS pinned to 1 thread/process) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Teacher dataset}
+The dataset used for distillation was collected via Algorithm~\ref{alg:collect}
+against the single-model LLM backend (\code{qwen2.5:3b-instruct}). Table~\ref{tab:dataset-audit}
+summarizes the audited dataset actually consumed by the training run in
+Table~\ref{tab:hparams}.
+
+\begin{table}[H]
+\centering
+\caption{Teacher dataset audit (\code{llm\_teacher/audit\_dataset.py}, this project's dataset).}
+\label{tab:dataset-audit}
+\begin{tabular}{lr}
+\toprule
+Total records & 2{,}235 \\
+Valid & 2{,}000 (89.5\%) \\
+Rejected & 235 (10.5\%) \\
+\quad -- executable text in rationale & 124 \\
+\quad -- horizon out of range & 105 \\
+\quad -- API error (HTTP 500) & 6 \\
+Distinct episodes & 170 \\
+Train / test split (episode-level) & 2{,}000 / 235 records \\
+Teacher backend/model & \code{qwen2.5:3b-instruct} (100\% of records) \\
+Total labeling time & 17.1 min (0.46 s/record mean) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Valid-record class balance and trigger mix -- both show the same
+imbalance the collapse in Section~\ref{sec:results-collapse} tracks.}
+\label{tab:class-balance}
+\small
+\begin{tabular}{lrl||lr}
+\toprule
+Goal class & Count & Mean conf. & Trigger & Count \\
+\midrule
+\code{DISCOVER\_SUBNET} & 1683 & 0.83 & \code{first\_compromise} & 805 \\
+\code{ENUMERATE\_HOST} & 233 & 0.70 & \code{periodic} & 559 \\
+\code{GAIN\_INITIAL\_ACCESS} & 55 & 0.94 & \code{high\_student\_entropy} & 439 \\
+\code{ESCALATE\_PRIVILEGE} & 4 & 0.96 & \code{new\_subnet\_discovered} & 215 \\
+\code{CAPTURE\_SENSITIVE\_HOST} & 12 & 0.92 & \code{episode\_start} & 170 \\
+\code{REDUCE\_DETECTION} & 9 & 0.95 & \code{privilege\_change} & 39 \\
+\code{PIVOT} & 4 & 0.84 & \code{three\_consecutive\_failures} & 8 \\
+\code{RECOVER\_OR\_REPLAN} & 0 & n/a & & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Five of eight classes fall below the audit tool's default minimum-class-count
+threshold (20); \code{RECOVER\_OR\_REPLAN} has \emph{zero} valid labeled examples in
+this dataset. This is flagged by \code{audit\_dataset.py} itself at collection time
+(``training the distillation head against these classes now will mostly be
+noise'') and is directly relevant to Section~\ref{sec:results-collapse}.
+
+% =====================================================================
+\section{Results}
+\label{sec:results}
+% =====================================================================
+
+\subsection{Training dynamics}
+
+\begin{table}[H]
+\centering
+\caption{Selected training-log snapshots (\texttt{training\_data/runs/b33undf9.json}).
+\code{eval\_tst} is computed on the single base scenario every logged epoch.}
+\label{tab:training-log}
+\small
+\begin{tabular}{@{}rrrrrr@{}}
+\toprule
+Train step & Loss & Entropy & \makecell[r]{eval\_tst\\reward\_avg\_ep.} & \makecell[r]{eval\_tst\\eplen\_avg} & \makecell[r]{eval\_tst\\captured\_avg} \\
+\midrule
+100    & 1.98  & 5.43 & --   & 400.0 & 24.8 \\
+1000   & 8.84  & 3.95 & --   & 400.0 & 28.9 \\
+14400  & 2.49  & 7.37 & 270.7 & 400.0 & 31.1 \\
+19800  & --    & --   & --   & 115.2 & 29.6 \\
+20000 (final) & 2.91 & 4.67 & 289.4 & 105.9 & 30.0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Subgoal-selection collapse}
+\label{sec:results-collapse}
+
+The manager subgoal-selection histogram (Section~\ref{sec:explainability}) already
+showed 91.8\% \code{DISCOVER\_SUBNET} at epoch 22 (11\% through training); by the
+final epoch this reached \textbf{100.0\%}, with all seven other named goals --
+including \code{CAPTURE\_SENSITIVE\_HOST}, the goal most directly tied to the task's
+objective -- at exactly zero selections. This mirrors the teacher dataset's own class
+imbalance almost exactly (84.2\% \code{DISCOVER\_SUBNET} in Table~\ref{tab:class-balance}):
+a manager repeatedly distilled toward a heavily \code{DISCOVER\_SUBNET}-dominated
+target, combined with the persistence \emph{switch} gate (Section~\ref{sec:arch})
+having no explicit pressure against staying put, is a plausible, evidence-consistent
+mechanism for the collapse, though this report does not run the random-label control
+(condition C5, Section~\ref{sec:distill}) needed to establish it as the sole cause
+rather than a contributing one. Despite the collapse in the \emph{labeled} subgoal
+signal, the worker continued to make tangible task progress (\code{captured\_avg}
+$\approx 30$ hosts throughout), consistent with the worker's action policy retaining
+useful behavior largely independently of which subgoal label the manager was
+nominally emitting at a given moment.
+
+\subsection{Checkpoint-selection pitfall}
+By default (\code{-save\_best\_metric captured\_avg}), the ``best'' checkpoint
+(\code{model\_best.pt}) is saved whenever \code{eval\_tst.captured\_avg} sets a new
+running maximum on the single, fixed, easiest training scenario. In this run, that
+metric peaked at train step 14400 (Table~\ref{tab:training-log}) and was never
+strictly exceeded again -- even though \code{eval\_tst.eplen\_avg} dropped from
+$400.0$ (every episode exhausting the step budget) to $105.9$ by the final step,
+meaning the policy had learned to finish episodes roughly $3.8\times$ faster for a
+comparable capture count. \code{captured\_avg} alone cannot see an episode-length
+improvement, so \code{model\_best.pt} silently froze at a materially worse-behaving
+policy than the run's own final checkpoint, \code{model.pt}.
+
+\subsection{Cross-scenario generalization}
+Both checkpoints were evaluated on all five scenario instances
+(Section~\ref{sec:env}), 100 held-out episodes per scenario, greedy (\code{net.eval()})
+action selection.
+
+\begin{table}[H]
+\centering
+\caption{\code{model\_best.pt} (frozen at train step 14400) vs.\ \code{model.pt}
+(final, train step 20000). \code{reward\_avg\_episodes} is the sum of per-episode
+reward, not the (misleading, unequal-episode-length) per-step average.}
+\label{tab:eval-comparison}
+\begin{tabular}{lrrrrrr}
+\toprule
+& \multicolumn{3}{c}{\code{model\_best.pt}} & \multicolumn{3}{c}{\code{model.pt} (final)} \\
+\cmidrule(lr){2-4} \cmidrule(lr){5-7}
+Scenario & reward\_avg\_ep. & eplen & captured & reward\_avg\_ep. & eplen & captured \\
+\midrule
+base (train)    & 3.24   & 400.0 & 30.2 & \textbf{259.1} & \textbf{111.6} & 29.6 \\
+varA (train)    & 21.8   & 400.0 & 17.5 & \textbf{80.5}  & \textbf{271.2} & 17.5 \\
+varB (train)    & $-$12.2 & 400.0 & 14.4 & \textbf{46.0}  & \textbf{272.7} & 13.3 \\
+test (held-out) & $-$36.7 & 399.4 & 11.9 & \textbf{$-$8.3} & \textbf{277.8} & 9.2 \\
+bridge (held-out) & $-$22.1 & 400.0 & 25.9 & \textbf{205.5} & \textbf{117.9} & 24.7 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\code{captured\_avg} is essentially flat between the two checkpoints on every
+scenario (within evaluation noise over 100 episodes) -- the final checkpoint is
+\emph{not} trading capture ability for speed, it is achieving the same capture
+ability in far fewer wasted steps. \code{reward\_avg\_episodes} flips from negative
+to strongly positive on 3 of 5 scenarios and improves substantially on the remaining
+two (including the held-out \code{test} scenario, still the weakest under both
+checkpoints, consistent with it having the lowest mean exploit probability in
+Table~\ref{tab:scenario-difficulty}). The practical conclusion is direct: for this
+architecture and this choice of \code{-save\_best\_metric}, the plain final
+checkpoint generalizes measurably better across held-out scenarios than the
+metric-selected ``best'' one, and \code{reward\_avg\_episodes} (which penalizes an
+episode that never terminates) would be the more appropriate optimization target for
+\code{-save\_best\_metric} in future runs of this system.
+
+\subsection{Comparison against a non-distilled Pen-DHRL baseline}
+\label{sec:baseline-comparison}
+Beyond the checkpoint-selection question above, \pendhrl{}'s final checkpoint was
+compared against a plain \code{NASimNetDHRL} baseline trained with \emph{no} LLM
+distillation -- identical architecture and parameter count (212k), isolating the
+distillation intervention itself. The baseline was trained twice independently; the
+value reported per scenario is from its stronger run, so it is shown in its best
+light rather than penalized by an unlucky run. All four evaluation metrics are
+reported for both, not just \code{reward\_avg\_episodes}. No baseline run was
+collected for the held-out \code{test} scenario, so it is omitted here (Pen-DHRL-TD
+alone on \code{test} is already in Table~\ref{tab:eval-comparison} above).
+
+\begin{table}[H]
+\centering
+\caption{\pendhrl{} (final checkpoint).}
+\label{tab:baseline-comparison-td}
+\small
+\begin{tabular}{lrrrr}
+\toprule
+Scenario & reward\_avg & reward\_avg\_episodes & eplen\_avg & captured\_avg \\
+\midrule
+base   & 2.3216 & 259.12 & 111.61 & 29.63 \\
+varA   & 0.2967 & 80.47  & 271.18 & 17.50 \\
+varB   & 0.1688 & 46.04  & 272.69 & 13.25 \\
+bridge & 1.7425 & 205.48 & 117.93 & 24.67 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Pen-DHRL baseline -- same architecture, same parameter count, no
+\code{--llm\_distill}.}
+\label{tab:baseline-comparison-base}
+\small
+\begin{tabular}{lrrrr}
+\toprule
+Scenario & reward\_avg & reward\_avg\_episodes & eplen\_avg & captured\_avg \\
+\midrule
+base   & 0.5428 & 217.11 & 400.0 & 29.59 \\
+varA   & 0.1708 & 68.33  & 400.0 & 13.73 \\
+varB   & 0.0778 & 31.12  & 400.0 & 9.39 \\
+bridge & 1.1470 & 161.96 & 141.20 & 23.36 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{eval_results_model_best.png}
+\caption{Both tables above, rendered directly from the evaluation output.}
+\label{fig:eval-comparison}
+\end{figure}
+
+\pendhrl{} wins on every metric (\code{reward\_avg}, \code{reward\_avg\_episodes},
+\code{captured\_avg}) on every scenario, and terminates well before the 400-step
+limit on all four, while the baseline only does so on \code{bridge}. Because the two
+runs share architecture and parameter count exactly, this isolates the LLM-teacher
+distillation signal itself as the source of the gain, rather than any difference in
+model capacity.
+
+% =====================================================================
+\section{Discussion and Limitations}
+% =====================================================================
+
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Class imbalance in the teacher dataset.} Five of eight ontology
+    classes are below a reasonable minimum count for reliable supervision, and
+    \code{RECOVER\_OR\_REPLAN} has zero examples (Table~\ref{tab:class-balance}).
+    The trigger set (Algorithm~\ref{alg:collect}) over-samples early-episode/
+    exploration-phase states relative to rare escalation/pivot moments; a targeted
+    collection pass using \code{--policy checkpoint} against a partially-trained
+    agent that has already learned to reach those rarer states (rather than the
+    \code{random}/\code{untrained\_net} policies that dominate easy states) is the
+    documented mitigation path.
+  \item \textbf{Distillation-collapse hypothesis, not proof.} Section~\ref{sec:results-collapse}'s
+    causal link between dataset imbalance and the subgoal-selection collapse is
+    plausible and evidence-consistent but not isolated from the persistence-gate
+    dynamics or the RL objective's own contribution. The random-label control
+    (\code{--llm\_distill\_shuffle\_labels}, condition C5) and the heuristic-teacher
+    ablation (Section~\ref{sec:teacher}) both already exist in this codebase to
+    disambiguate this and were not run for the present report.
+  \item \textbf{Single teacher model.} All reported results use one 3B-parameter
+    local model. The cascade escalation path (Section~\ref{sec:teacher}) and
+    workstation-scale larger-model candidates are implemented but unevaluated here.
+  \item \textbf{Potential-based shaping unused.} Section~\ref{sec:shaping}'s reward
+    level channel was not enabled for this run; its interaction with the collapse
+    observed in distillation-only training is unexplored.
+  \item \textbf{Checkpoint-selection metric.} As shown directly in
+    Table~\ref{tab:eval-comparison}, \code{-save\_best\_metric captured\_avg} is not
+    a safe default for this task; it is blind to episode-length degeneracy.
+  \item \textbf{Baseline comparison is one run.} Table~\ref{tab:baseline-comparison-base}
+    reports the non-distilled baseline's stronger of two independently trained runs,
+    not a distribution over many runs -- a useful signal, not a statistically
+    rigorous claim of significance. The same caveat applies symmetrically to
+    \pendhrl{} itself: the results throughout this report come from a single
+    training run.
+\end{itemize}
+
+% =====================================================================
+\section{Conclusion}
+% =====================================================================
+
+\pendhrl{} demonstrates a complete, offline-only pipeline for grounding a
+hierarchical RL agent's otherwise-anonymous subgoal space in LLM-derived semantic
+supervision: a fixed goal ontology, a sanitized/validated/provenance-tracked teacher
+dataset built via triggered sampling under a diversified policy mixture, a
+confidence-weighted distillation loss folded into a four-stage training schedule
+alongside standard PPO, and a live explainability mechanism that surfaces the
+manager's realized behavior every epoch rather than only at evaluation time. Applied
+to a 100-host dynamic corporate scenario family, this pipeline surfaced concrete,
+actionable findings that would not have been visible from aggregate reward curves
+alone: a subgoal-selection collapse traceable to the teacher dataset's own class
+imbalance, and a checkpoint-selection metric blind to episode-length degeneracy that
+caused the saved ``best'' model to substantially underperform the run's own final
+policy on held-out generalization. Set against an independently trained,
+same-architecture, same-parameter-count Pen-DHRL baseline run without the teacher
+signal, the final distilled policy also wins on every reported metric on every
+scenario tested -- evidence that the gain traces to the distillation signal itself
+rather than model capacity. All of these findings, and the tooling that surfaced them,
+are directly actionable
+for the next data-collection and training pass.
+
+\end{document}

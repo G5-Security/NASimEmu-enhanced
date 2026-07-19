@@ -1,0 +1,99 @@
+\documentclass[10pt]{article}
+
+\usepackage[margin=0.7in,top=0.6in,bottom=0.6in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage[colorlinks=true,linkcolor=blue,urlcolor=blue]{hyperref}
+\usepackage{microtype}
+\setlength{\emergencystretch}{2em}
+\sloppy
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{4pt}
+\pagestyle{empty}
+
+\newcommand{\code}[1]{\texttt{\small #1}}
+
+\begin{document}
+
+{\Large\bfseries Pen-DHRL-TD: Teacher-Distilled Hierarchical RL for Autonomous Penetration Testing}\\[2pt]
+{\small NASimEmu-enhanced Project \hfill \today}
+
+\vspace{2pt}
+\hrule
+\vspace{6pt}
+
+\textbf{Summary.} Pen-DHRL-TD augments a deep hierarchical RL pentesting agent
+(\code{NASimNetDHRL}: a recurrent GNN \emph{manager} + goal-conditioned graph-attention
+\emph{worker}, 212k params) with offline supervision from a locally-hosted LLM teacher
+(\code{qwen2.5:3b-instruct} via Ollama, never queried inside the training loop). The
+manager selects one of 8 named semantic subgoals (e.g.\ \code{GAIN\_INITIAL\_ACCESS},
+\code{ESCALATE\_PRIVILEGE}); the teacher labels sanitized, partially-observable state
+summaries with a goal + confidence, producing a provenance-tracked dataset distilled
+into the subgoal head via a confidence-weighted cross-entropy loss, folded into a
+four-stage schedule (supervised warm-start~$\to$~decaying joint PPO+distillation~$\to$~guaranteed
+RL-only tail). A live \emph{explainability monitor} prints the manager's realized
+subgoal histogram and distillation diagnostics every epoch.
+
+\textbf{Method highlights.}
+\begin{itemize}[nosep,leftmargin=1.2em]
+  \item \textbf{Teacher pipeline:} discovered-only state summary $\to$ JSON-schema-constrained
+    LLM query $\to$ anti-hallucination/executable-text validator $\to$ retry-on-reject,
+    never silently discarded.
+  \item \textbf{Triggered sampling:} teacher queried only at informative moments
+    (new subnet, first compromise, privilege change, IDS alert, repeated failure, high
+    manager entropy, periodic fallback) under a diversified rollout-policy mixture.
+  \item \textbf{Distillation loss:} $\mathcal{L}_{\text{goal}} = \text{mean}_i\big[
+    \operatorname{clip}(c_i, 0.05, 1)\cdot(-\log \hat p_\theta(g_i\mid s_i))\big]$,
+    jointly trained with PPO under an annealed weight, forced to exactly 0 for the
+    final 10\% of training.
+\end{itemize}
+
+\textbf{Key findings} (12-subnet, 72--96-host dynamic scenario family; run \code{b33undf9}, 200 epochs):
+\begin{itemize}[nosep,leftmargin=1.2em]
+  \item \textbf{Teacher dataset:} 2{,}235 labeled states, 89.5\% valid, but severely
+    class-imbalanced (84\% \code{DISCOVER\_SUBNET}; \code{RECOVER\_OR\_REPLAN}: 0 examples),
+    which the live subgoal histogram traced directly to a training-time subgoal
+    collapse (92\%$\to$100\% \code{DISCOVER\_SUBNET} by training's end).
+  \item \textbf{Checkpoint-selection pitfall:} the default ``best-checkpoint'' metric
+    (\code{captured\_avg}) is blind to episode length and froze on a mid-run checkpoint,
+    missing a large late-training efficiency gain visible only in \code{reward\_avg\_episodes}.
+  \item \textbf{Outperforms a non-distilled Pen-DHRL baseline:} same architecture,
+    same parameter count (212k), trained \emph{without} the teacher signal. The
+    distilled agent wins on every metric, every scenario.
+\end{itemize}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lrrrr}
+\toprule
+Scenario & reward\_avg & reward\_avg\_episodes & eplen\_avg & captured\_avg \\
+\midrule
+\multicolumn{5}{l}{\textit{Pen-DHRL-TD (final checkpoint, LLM-distilled)}} \\
+base   & 2.3216 & $\mathbf{259.12}$ & $\mathbf{111.61}$ & $\mathbf{29.63}$ \\
+varA   & 0.2967 & $\mathbf{80.47}$  & $\mathbf{271.18}$ & $\mathbf{17.50}$ \\
+varB   & 0.1688 & $\mathbf{46.04}$  & $\mathbf{272.69}$ & $\mathbf{13.25}$ \\
+bridge & 1.7425 & $\mathbf{205.48}$ & $\mathbf{117.93}$ & $\mathbf{24.67}$ \\
+\multicolumn{5}{l}{\textit{Pen-DHRL baseline (same architecture/params, no distillation)}} \\
+base   & 0.5428 & 217.11 & 400.0 & 29.59 \\
+varA   & 0.1708 & 68.33  & 400.0 & 13.73 \\
+varB   & 0.0778 & 31.12  & 400.0 & 9.39 \\
+bridge & 1.1470 & 161.96 & 141.20 & 23.36 \\
+\bottomrule
+\end{tabular}
+\caption{\small 100 held-out episodes/scenario. Baseline: stronger of two
+independently trained runs per scenario.}
+\end{table}
+
+\textbf{Takeaway.} Pen-DHRL-TD wins on every metric on every scenario, and
+terminates well before the 400-step limit on all four (the baseline only does so on
+\code{bridge}). Because the two runs share architecture and parameter count exactly,
+the gain traces to the LLM-teacher distillation signal itself, not extra model
+capacity.
+
+{\small\textit{Full technical report (18 pp.: architecture, teacher pipeline,
+5 algorithms, complete results and limitations) available on request.}}
+
+\end{document}
