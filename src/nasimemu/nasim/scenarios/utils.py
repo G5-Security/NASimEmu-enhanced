@@ -1,9 +1,17 @@
+import copy
 import os
 import yaml
 import os.path as osp
 
 
 SCENARIO_DIR = osp.dirname(osp.abspath(__file__))
+
+# Scenario loaders mutate the dictionary returned by ``load_yaml`` while they
+# expand ranged subnet sizes and normalize the remaining fields.  Keep one
+# pristine parsed template per file and hand each loader an independent copy.
+# Besides avoiding cross-load state leaks, this prevents large dynamic
+# scenarios from being reparsed for every episode in every worker process.
+_YAML_CACHE = {}
 
 # default subnet address for internet
 INTERNET = 0
@@ -73,9 +81,18 @@ def load_yaml(file_path):
     ------
     Exception
         if theres an issue loading file. """
-    with open(file_path) as fin:
-        content = yaml.load(fin, Loader=yaml.FullLoader)
-    return content
+    canonical_path = osp.realpath(osp.abspath(osp.expanduser(os.fspath(file_path))))
+    stat = os.stat(canonical_path)
+    signature = (stat.st_mtime_ns, stat.st_size)
+    cached = _YAML_CACHE.get(canonical_path)
+
+    if cached is None or cached[0] != signature:
+        with open(canonical_path, encoding="utf-8") as fin:
+            content = yaml.load(fin, Loader=yaml.FullLoader)
+        _YAML_CACHE[canonical_path] = (signature, content)
+        cached = _YAML_CACHE[canonical_path]
+
+    return copy.deepcopy(cached[1])
 
 
 def get_file_name(file_path):

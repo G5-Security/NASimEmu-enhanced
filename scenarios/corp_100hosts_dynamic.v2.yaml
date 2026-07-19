@@ -264,10 +264,15 @@ firewall: _subnets
 curriculum:
   enabled: true
   stages:
-    # Stage 1: Baseline - No realism (Epochs 0-49) - Learn basic strategy
+    # Stage 1: Baseline - No realism (first 30% of run) - Learn basic strategy.
+    # Bounds are fractions of the total run (-max_epochs) so the curriculum ramps
+    # correctly at any run length; start_epoch/end_epoch are absolute fallbacks
+    # used only when the run length is unknown (unbounded / -max_epochs unset).
     - name: "baseline"
+      start_frac: 0.0
+      end_frac: 0.30
       start_epoch: 0
-      end_epoch: 999
+      end_epoch: 60
       ids:
         enabled: false
       scan_noise:
@@ -287,10 +292,12 @@ curriculum:
         churn_probability: 0.0
         affected_services: []
     
-    # Stage 2: Medium difficulty (Epochs 50-79) - Light realism introduction
+    # Stage 2: Medium difficulty (30%-60% of run) - Light realism introduction
     - name: "medium_difficulty"
-      start_epoch: 999
-      end_epoch: 9999
+      start_frac: 0.30
+      end_frac: 0.60
+      start_epoch: 60
+      end_epoch: 120
       ids:
         enabled: true
         detection_decay: 0.99  # Slow decay = forgiving
@@ -342,9 +349,11 @@ curriculum:
             probability: 0.1
             down_duration: [12, 20]
     
-    # Stage 3: Full difficulty (Epochs 80+) - Balanced realism for stealth training
+    # Stage 3: Full difficulty (final 40% of run) - Balanced realism for stealth training
     - name: "full_difficulty"
-      start_epoch: 9999
+      start_frac: 0.60
+      end_frac: 1.0
+      start_epoch: 120
       end_epoch: 999999  # Effectively infinite
       ids:
         enabled: true

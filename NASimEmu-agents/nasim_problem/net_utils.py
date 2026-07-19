@@ -14,10 +14,10 @@ def flatten(t):
 # @jit(nopython=True)
 # @torch.jit.script
 def compute_v_target(r, v_, d, gamma, ppo_t, batch, clip_to_zero):
-    d = torch.tensor(d, dtype=torch.float32)
-    r = torch.tensor(r, dtype=torch.float32)
+    d = torch.tensor(d, dtype=torch.float32, device=v_.device)
+    r = torch.tensor(r, dtype=torch.float32, device=v_.device)
 
-    v_target = torch.zeros(ppo_t, batch)
+    v_target = torch.zeros(ppo_t, batch, device=v_.device)
 
     if clip_to_zero:
         for t_reversed in range(int(ppo_t)):

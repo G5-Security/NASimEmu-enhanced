@@ -34,6 +34,7 @@ class NASimConfig():
 		# config.scenario_name = "nasim_emulation/scenarios/simple_03.yaml"
 		config.scenario_name = args.scenario
 		config.test_scenario_name = args.test_scenario
+		config.eval_split = getattr(args, 'eval_split', 'both')
 		
 		# config.node_dim = 34
 		# config.step_limit = 200
@@ -90,6 +91,7 @@ class NASimConfig():
 			scenario_name=config.scenario_name,
 			augment_with_action=config.augment_with_action,
 			training_mode=config.training_mode,  # Pass training_mode for curriculum learning
+			curriculum_total_epochs=getattr(config, 'max_epochs', None),
 			feature_dropout_p=getattr(args, 'feature_dropout_p', 0.0),
 			dr_prob_jitter=getattr(args, 'dr_prob_jitter', 0.0),
 			dr_cost_jitter=getattr(args, 'dr_cost_jitter', 0.0),
@@ -141,8 +143,9 @@ class NASimConfig():
 		
 		argparse.add_argument('--emulate', action='store_const', const=True, help="Emulate the network (via vagrant; use only with --trace)")
 		argparse.add_argument('--test_scenario', type=str, help="Additional test scenarios to separately test the model (aka train/test datasets).")
+		argparse.add_argument('--eval_split', choices=['both', 'train', 'test'], default='both', help="Select which evaluation split to run. 'test' requires --test_scenario and skips the positional training-scenario evaluation.")
 		argparse.add_argument('--feature_dropout_p', type=float, default=0.0, help="Training-time feature dropout probability for observed service/process bits (0.0 to disable)")
-		argparse.add_argument('--dr_prob_jitter', type=float, default=0.0, help="Per-episode multiplicative jitter for exploit/privesc probabilities (e.g., 0.1 -> ±10%)")
+		argparse.add_argument('--dr_prob_jitter', type=float, default=0.0, help="Per-episode multiplicative jitter for exploit/privesc probabilities (e.g., 0.1 -> ±10%%)")
 		argparse.add_argument('--dr_cost_jitter', type=float, default=0.0, help="Per-episode multiplicative jitter for exploit/privesc/scan costs (rounded, min 1)")
 		argparse.add_argument('--dr_scan_cost_jitter', type=float, default=0.0, help="Per-episode multiplicative jitter for scan costs (rounded, min 1)")
 		
@@ -158,4 +161,4 @@ class NASimConfig():
 		argparse.add_argument('--auto_mode_test', type=str, default=None, choices=['off', 'per_episode', 'per_epoch'], help="Override auto_mode for test eval only")
 		argparse.add_argument('--auto_template_test', type=str, default=None, help="Use a different template YAML for test eval only")
 		# Sensitivity probability jitter
-		argparse.add_argument('--auto_sensitive_jitter', type=float, default=0.0, help="Per-episode jitter for per-subnet sensitive host probabilities (e.g., 0.1 -> ±10%)")
+		argparse.add_argument('--auto_sensitive_jitter', type=float, default=0.0, help="Per-episode jitter for per-subnet sensitive host probabilities (e.g., 0.1 -> ±10%%)")

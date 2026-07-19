@@ -25,9 +25,9 @@ class CurriculumManager:
         The current epoch number during training
     """
     
-    def __init__(self, curriculum_config, training_mode=True):
+    def __init__(self, curriculum_config, training_mode=True, total_epochs=None):
         """Initialize the curriculum manager.
-        
+
         Parameters
         ----------
         curriculum_config : dict
@@ -36,17 +36,47 @@ class CurriculumManager:
             Whether in training mode (True) or evaluation mode (False).
             In evaluation mode, always uses the final/hardest stage.
             (default=True)
+        total_epochs : int, optional
+            Total number of training epochs for the whole run. When set, stages
+            may declare ``start_frac``/``end_frac`` in [0, 1] instead of (or in
+            addition to) absolute ``start_epoch``/``end_epoch``, and the manager
+            resolves those fractions against this total. This makes a curriculum
+            robust to the run length -- the same YAML ramps correctly whether the
+            run is 50 or 500 epochs -- instead of hard-coding absolute epoch
+            numbers that silently never trigger on shorter/longer runs.
+            (default=None -> fall back to absolute epochs)
         """
         self.config = curriculum_config
         self.training_mode = training_mode
+        self.total_epochs = total_epochs
         self.current_epoch = 0
-        
-        # Validate and sort stages by start_epoch
+
+        # Validate and sort stages by their resolved start epoch
         if 'stages' in self.config:
             self.config['stages'] = sorted(
-                self.config['stages'], 
-                key=lambda x: x.get('start_epoch', 0)
+                self.config['stages'],
+                key=lambda x: self._stage_bounds(x)[0]
             )
+
+    def _stage_bounds(self, stage):
+        """Resolve a stage's [start, end) epoch window.
+
+        Prefers fractional bounds (``start_frac``/``end_frac``) scaled by
+        ``total_epochs`` when both are available, otherwise falls back to
+        absolute ``start_epoch``/``end_epoch``. Returns (start_epoch, end_epoch)
+        as numbers (end may be float('inf')).
+        """
+        if self.total_epochs and 'start_frac' in stage:
+            start = int(round(float(stage['start_frac']) * self.total_epochs))
+        else:
+            start = stage.get('start_epoch', 0)
+
+        if self.total_epochs and 'end_frac' in stage:
+            end = int(round(float(stage['end_frac']) * self.total_epochs))
+        else:
+            end = stage.get('end_epoch', float('inf'))
+
+        return start, end
     
     def update_epoch(self, epoch):
         """Update the current epoch number.
@@ -79,12 +109,11 @@ class CurriculumManager:
             return self._get_default_stage()
         
         for stage in self.config['stages']:
-            start = stage.get('start_epoch', 0)
-            end = stage.get('end_epoch', float('inf'))
-            
+            start, end = self._stage_bounds(stage)
+
             if start <= self.current_epoch < end:
                 return stage
-        
+
         # If no stage matches, return the last stage
         return self.config['stages'][-1]
     
@@ -164,12 +193,13 @@ class CurriculumManager:
             - training_mode: Whether in training mode
         """
         stage = self.get_current_stage()
-        
+        start, end = self._stage_bounds(stage)
+
         return {
             'name': stage.get('name', 'unknown'),
             'epoch': self.current_epoch,
-            'start_epoch': stage.get('start_epoch', 0),
-            'end_epoch': stage.get('end_epoch', float('inf')),
+            'start_epoch': start,
+            'end_epoch': end,
             'training_mode': self.training_mode
         }
     
@@ -196,8 +226,8 @@ class CurriculumManager:
         
         transitions = set()
         for stage in self.config['stages']:
-            start = stage.get('start_epoch', 0)
+            start, _ = self._stage_bounds(stage)
             transitions.add(start)
-        
+
         return sorted(transitions)
 

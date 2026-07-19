@@ -637,6 +637,20 @@ class HostVector:
         if processes:
             idxs = self._process_idx_slice()
             obs[idxs] = self.vector[idxs]
+        # IDS state: whenever a host is observed at all, reveal how "hot" it is
+        # (accumulated detection level) and whether it is under increased
+        # monitoring. Without this the agent is penalised by the IDS through the
+        # reward but has NO observable signal for its own detection footprint,
+        # so it cannot learn a stealth policy (it only ever sees these columns
+        # as 0). The hidden per-host detection *threshold* is deliberately NOT
+        # exposed -- that uncertainty is what makes stealth non-trivial. These
+        # columns already exist in the state vector, so exposing them does not
+        # change the observation dimensionality (existing checkpoints stay
+        # compatible; the columns are simply no longer forced to 0).
+        if self._detection_level_idx is not None:
+            obs[self._detection_level_idx] = self.vector[self._detection_level_idx]
+        if self._detection_multiplier_idx is not None:
+            obs[self._detection_multiplier_idx] = self.vector[self._detection_multiplier_idx]
         return obs
 
     def readable(self):

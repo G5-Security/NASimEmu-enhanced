@@ -85,14 +85,20 @@ class NASimDebug():
         print(f"{test_env.env.scenario_name};{reward_mean:.2f};{req_actions_mean:.2f}")
 
     def evaluate(self, net):
-        log_trn = self._eval(net, config.scenario_name)
+        eval_split = getattr(config, 'eval_split', 'both')
+        if eval_split == 'test' and not config.test_scenario_name:
+            raise SystemExit("--eval_split test requires --test_scenario.")
 
-        if config.test_scenario_name:
-            log_tst = self._eval(net, config.test_scenario_name)
-        else:
-            log_tst = None
+        results = {}
+        if eval_split in ('both', 'train'):
+            results['eval_trn'] = self._eval(net, config.scenario_name)
+        if eval_split in ('both', 'test'):
+            results['eval_tst'] = (
+                self._eval(net, config.test_scenario_name)
+                if config.test_scenario_name else None
+            )
 
-        return {'eval_trn': log_trn, 'eval_tst': log_tst}
+        return results
 
     def _eval(self, net, scenario_name):
         # choose auto overrides depending on whether this is test or train
@@ -100,8 +106,18 @@ class NASimDebug():
         auto_mode_use = getattr(config, 'auto_mode_test', None) if is_test and getattr(config, 'auto_mode_test', None) is not None else getattr(config, 'auto_mode', 'off')
         auto_template_use = getattr(config, 'auto_template_test', None) if is_test and getattr(config, 'auto_template_test', None) is not None else getattr(config, 'auto_template', None)
 
-        def make_one():
+        def make_one(i):
+            # Force training_mode=False so the curriculum manager reports its
+            # FINAL (hardest) stage during evaluation, regardless of the training
+            # epoch. Without this, eval envs inherit the training-time
+            # training_mode=True and, since set_epoch is never called on them,
+            # sit at epoch 0 = the baseline stage (IDS off) -- so the reported
+            # eval metrics and the save_best checkpoint would track IDS-OFF
+            # performance while the real test (standalone --eval) uses full IDS.
+            # This aligns training-time eval with the real test difficulty.
             return gym.make('NASimEmuEnv-v99', random_init=False, scenario_name=scenario_name,
+                training_mode=False,
+                seed=(config.seed + i) if config.seed is not None else None,
                 auto_mode=auto_mode_use, auto_template=auto_template_use,
                 auto_host_range=getattr(config, 'auto_host_range', None),
                 auto_subnet_count=getattr(config, 'auto_subnet_count', None),
@@ -111,7 +127,10 @@ class NASimDebug():
                 auto_sensitive_jitter=getattr(config, 'auto_sensitive_jitter', 0.0)
             )
 
-        test_env = SubprocVecEnv([lambda: make_one() for i in range(config.eval_batch)], in_series=(config.eval_batch // config.cpus), context='fork')
+        test_env = SubprocVecEnv(
+            [lambda i=i: make_one(i) for i in range(config.eval_batch)],
+            in_series=(config.eval_batch // config.cpus), context='fork',
+        )
         tqdm_val = tqdm(desc='Validating', unit=' problems')
 
         saved_state = net.__class__() # create a fresh instance

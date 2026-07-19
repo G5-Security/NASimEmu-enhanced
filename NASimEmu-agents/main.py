@@ -1,7 +1,24 @@
+import os
+
+# Must be set before numpy is imported (it reads these at BLAS init time).
+# Training already parallelizes across -cpus worker processes; each one
+# separately spinning up its own OpenBLAS thread pool (sized to the full
+# core count by default) causes massive thread oversubscription, and on
+# this machine's CPU that thread pool has also been observed to corrupt
+# unrelated heap memory under heavy allocation churn (surfaces much later
+# as nonsensical crashes deep in yaml parsing or elsewhere -- see
+# docs/environment_setup_and_fixes.md). Pinning to 1 thread per process is
+# also just standard practice for this outer-process-parallel + inner-BLAS
+# combination regardless.
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+
 import numpy as np
 import gym, torch, logging
 
-import argparse, itertools, os, random
+import argparse, itertools, random
 import json, time
 
 # Default to offline wandb mode so runs never block on the interactive
@@ -20,6 +37,7 @@ from llm_teacher.reward_shaping import compute_shaping_terms, apply_shaping_to_t
 from llm_teacher.dataset_reader import load_dataset
 from llm_teacher.distillation_loss import goal_distillation_loss
 from llm_teacher.goal_ontology import GOAL_NAMES
+from training_lock import TrainingLockError, acquire_training_lock
 
 # ----------------------------------------------------------------------------------------
 def _print_curriculum_status(env, current_epoch):
@@ -117,6 +135,137 @@ def decay_exp(step, start, min, factor, rate):
 
 	return value
 
+def scheduled_value_at_step(step, start, minimum, factor, rate, decay_fn):
+	"""Return the value that was active immediately after ``step``.
+
+	Schedules are only applied on exact ``rate`` boundaries in the training
+	loop. A legacy weights-only checkpoint therefore needs the most recent
+	boundary value, not ``decay_fn(step, ...)`` at an arbitrary interrupted
+	step.
+	"""
+	if step <= 0:
+		return start
+	boundary = (step // rate) * rate
+	if boundary <= 0:
+		return start
+	return decay_fn(boundary, start, minimum, factor, rate)
+
+def capture_rng_state():
+	np_name, np_keys, np_pos, np_has_gauss, np_cached_gaussian = np.random.get_state()
+	state = {
+		'python': random.getstate(),
+		'numpy': {
+			'bit_generator': np_name,
+			'keys': torch.from_numpy(np_keys.copy()),
+			'position': int(np_pos),
+			'has_gauss': int(np_has_gauss),
+			'cached_gaussian': float(np_cached_gaussian),
+		},
+		'torch': torch.get_rng_state(),
+	}
+	if torch.cuda.is_available():
+		state['torch_cuda'] = torch.cuda.get_rng_state_all()
+	return state
+
+def restore_rng_state(state):
+	if not state:
+		return
+	random.setstate(state['python'])
+	np_state = state['numpy']
+	np.random.set_state((
+		np_state['bit_generator'],
+		np_state['keys'].cpu().numpy(),
+		np_state['position'],
+		np_state['has_gauss'],
+		np_state['cached_gaussian'],
+	))
+	torch.set_rng_state(state['torch'])
+	if 'torch_cuda' in state and torch.cuda.is_available():
+		torch.cuda.set_rng_state_all(state['torch_cuda'])
+
+def make_training_state(step, env_steps_total, episodes_completed, best_value,
+						net, target_net, args, config):
+	"""Build the restart metadata embedded in newly saved checkpoints."""
+	return {
+		'format_version': 1,
+		'step': int(step),
+		'env_steps_total': int(env_steps_total),
+		'episodes_completed': int(episodes_completed),
+		'best_value': float(best_value),
+		'best_split': config.save_best_split,
+		'best_metric': config.save_best_metric,
+		'lr': float(net.lr),
+		'alpha_h': float(net.alpha_h),
+		'optimizer_state_dict': net.opt.state_dict(),
+		'target_state_dict': target_net.state_dict(),
+		'rng_state': capture_rng_state(),
+		'run_config': {
+			'scenario': args.scenario,
+			'test_scenario': args.test_scenario,
+			'net_class': args.net_class,
+			'batch': config.batch,
+			'epoch': config.epoch,
+			'max_epochs': config.max_epochs,
+			'seed': config.seed,
+			'opt_lr': config.opt_lr,
+			'initial_alpha_h': config.alpha_h,
+			'episode_step_limit': config.step_limit,
+			'use_a_t': config.use_a_t,
+			'observation_format': config.observation_format,
+			'llm_shaping': bool(args.llm_shaping),
+			'llm_distill': bool(args.llm_distill),
+			'sched_lr_rate': config.sched_lr_rate,
+			'sched_lr_factor': config.sched_lr_factor,
+			'sched_lr_min': config.sched_lr_min,
+			'sched_alpha_h_rate': config.sched_alpha_h_rate,
+			'sched_alpha_h_factor': config.sched_alpha_h_factor,
+			'sched_alpha_h_min': config.sched_alpha_h_min,
+		},
+	}
+
+def validate_resume_run_config(saved, args, config):
+	"""Refuse silent scientific-configuration drift on full-state resumes."""
+	if not saved:
+		return
+	current = {
+		'scenario': args.scenario,
+		'test_scenario': args.test_scenario,
+		'net_class': args.net_class,
+		'batch': config.batch,
+		'epoch': config.epoch,
+		'seed': config.seed,
+		'opt_lr': config.opt_lr,
+		'initial_alpha_h': config.alpha_h,
+		'episode_step_limit': config.step_limit,
+		'use_a_t': config.use_a_t,
+		'observation_format': config.observation_format,
+		'llm_shaping': bool(args.llm_shaping),
+		'llm_distill': bool(args.llm_distill),
+		'sched_lr_rate': config.sched_lr_rate,
+		'sched_lr_factor': config.sched_lr_factor,
+		'sched_lr_min': config.sched_lr_min,
+		'sched_alpha_h_rate': config.sched_alpha_h_rate,
+		'sched_alpha_h_factor': config.sched_alpha_h_factor,
+		'sched_alpha_h_min': config.sched_alpha_h_min,
+	}
+	mismatches = [
+		f"{key}: checkpoint={saved[key]!r}, command={value!r}"
+		for key, value in current.items()
+		if key in saved and saved[key] != value
+	]
+	if mismatches:
+		raise SystemExit(
+			"Resume command does not match the checkpoint's training configuration:\n  "
+			+ "\n  ".join(mismatches)
+		)
+
+	saved_max_epochs = saved.get('max_epochs')
+	if saved_max_epochs is not None and config.max_epochs is not None and config.max_epochs < saved_max_epochs:
+		raise SystemExit(
+			f"Resume command shortens -max_epochs from {saved_max_epochs} to {config.max_epochs}. "
+			"Keep the original endpoint or extend it."
+		)
+
 def llm_distill_lambda_goal(step, args, config):
 	"""Master plan Sec 15.9's four-stage schedule: stage 2/3 is the
 	fixed-then-decaying joint weight (anneal_lambda alone), stage 4 is
@@ -140,6 +289,12 @@ def init_seed(seed):
 	torch.manual_seed(seed)
 	torch.cuda.manual_seed(seed)
 
+def command_starts_training(args):
+	"""Return whether this invocation enters the mutating training loop."""
+	return not any(bool(getattr(args, flag, False)) for flag in (
+		'calc_baseline', 'trace', 'eval', 'debug',
+	))
+
 def get_args(problem_config):
 	cuda_devices = [f'cuda:{i}' for i in range(torch.cuda.device_count())]
 
@@ -150,6 +305,9 @@ def get_args(problem_config):
 	parser.add_argument('-batch', type=int, default=128, help="Number of parallel environments")
 	parser.add_argument('-seed', type=int, default=None, help="Random seed (each of the -batch parallel envs gets seed+i; see NASimEmuEnv.__init__)")
 	parser.add_argument('-load_model', type=str, default=None, help="Load model from this file")
+	parser.add_argument('--resume', action='store_true', help="Resume training progress from -load_model. New checkpoints restore embedded trainer state automatically; legacy weights-only checkpoints also require --resume_step.")
+	parser.add_argument('-resume_step', '--resume_step', type=int, default=None, help="Global completed training step for a legacy weights-only checkpoint (for example 11600). Ignored when embedded trainer state is available.")
+	parser.add_argument('-resume_best_value', '--resume_best_value', type=float, default=None, help="Best metric achieved before a legacy checkpoint interruption. Preserves best-checkpoint tracking across the recovered run.")
 	parser.add_argument('-save_best_split', choices=['eval_trn', 'eval_tst'], default='eval_tst', help="Which eval split's metric to track for the best-checkpoint save (falls back to eval_trn if no -test_scenario is configured)")
 	parser.add_argument('-save_best_metric', choices=['reward_avg', 'reward_avg_episodes', 'eplen_avg', 'captured_avg'], default='captured_avg', help="Metric to track for the best-checkpoint save; higher is always better for all four (eplen_avg is included for completeness, not recommended as the optimization target)")
 	parser.add_argument('-epoch', type=int, default=1000, help="Epoch length")
@@ -214,6 +372,28 @@ if __name__ == '__main__':
 	np.set_printoptions(threshold=np.inf, precision=4, suppress=True)
 
 	args = get_args(problem_config)
+	if args.resume and not args.load_model:
+		raise SystemExit("--resume requires -load_model CHECKPOINT")
+	if args.resume_step is not None and not args.resume:
+		raise SystemExit("--resume_step only applies with --resume")
+	if args.resume_best_value is not None and not args.resume:
+		raise SystemExit("--resume_best_value only applies with --resume")
+	if args.resume and args.llm_distill_shuffle_labels:
+		raise SystemExit("--resume is not supported with --llm_distill_shuffle_labels because the prior label permutation is not checkpointed")
+	if args.resume_step is not None and args.resume_step < 0:
+		raise SystemExit("--resume_step must be >= 0")
+
+	# A second independent trainer would compete for the same CPU set and both
+	# processes would append to the fixed training_data/latest/latest.json path.
+	# Hold a kernel-backed, crash-safe lock before creating any environments or
+	# touching run logs. Read-only/debug commands deliberately bypass the guard.
+	training_run_lock = None
+	if command_starts_training(args):
+		try:
+			training_run_lock = acquire_training_lock()
+		except TrainingLockError as exc:
+			raise SystemExit(str(exc))
+		print(f"[run-lock] Acquired exclusive training lock: {training_run_lock.path}")
 
 	# --llm_shaping reads raw_a[2] (the active semantic subgoal) out of the
 	# forward-pass's raw_actions tuple -- this field only exists on
@@ -271,11 +451,87 @@ if __name__ == '__main__':
 	print(net)
 	print(f"Number of parameters: {net.get_param_count()}")
 
+	checkpoint_training_state = None
 	if config.load_model:
-		net.load(config.load_model)
+		checkpoint_training_state = net.load(config.load_model)
 		target_net.load(config.load_model)
 
 		print(f"Model loaded: {config.load_model}")
+
+	resume_step = 0
+	resume_env_steps = 0
+	resume_episodes_completed = 0
+	resume_best_value = float('-inf')
+	resume_rng_state = None
+	if args.resume:
+		if checkpoint_training_state is not None:
+			format_version = checkpoint_training_state.get('format_version')
+			if format_version != 1:
+				raise SystemExit(f"Unsupported checkpoint training_state format_version={format_version!r}")
+			validate_resume_run_config(checkpoint_training_state.get('run_config'), args, config)
+			resume_step = int(checkpoint_training_state['step'])
+			resume_env_steps = int(checkpoint_training_state.get('env_steps_total', resume_step * config.batch))
+			resume_episodes_completed = int(checkpoint_training_state.get('episodes_completed', 0))
+			resume_best_value = float(checkpoint_training_state.get('best_value', float('-inf')))
+			resume_rng_state = checkpoint_training_state.get('rng_state')
+
+			saved_split = checkpoint_training_state.get('best_split')
+			saved_metric = checkpoint_training_state.get('best_metric')
+			if saved_split and saved_split != config.save_best_split:
+				raise SystemExit(
+					f"Resume checkpoint tracked best split {saved_split!r}, but this run uses "
+					f"{config.save_best_split!r}. Pass -save_best_split {saved_split}."
+				)
+			if saved_metric and saved_metric != config.save_best_metric:
+				raise SystemExit(
+					f"Resume checkpoint tracked best metric {saved_metric!r}, but this run uses "
+					f"{config.save_best_metric!r}. Pass -save_best_metric {saved_metric}."
+				)
+
+			net.opt.load_state_dict(checkpoint_training_state['optimizer_state_dict'])
+			target_net.load_state_dict(checkpoint_training_state['target_state_dict'])
+			net.set_lr(float(checkpoint_training_state['lr']))
+			net.set_alpha_h(float(checkpoint_training_state['alpha_h']))
+			print(
+				f"[resume] Restored embedded trainer state at step={resume_step}, "
+				f"env_steps={resume_env_steps}, lr={net.lr:.8g}, alpha_h={net.alpha_h:.8g}, "
+				f"best={resume_best_value:.6g}."
+			)
+		else:
+			if args.resume_step is None:
+				raise SystemExit(
+					"This checkpoint contains weights only. Supply --resume_step with the last "
+					"completed global training step."
+				)
+			resume_step = int(args.resume_step)
+			resume_env_steps = resume_step * config.batch
+			if args.resume_best_value is not None:
+				resume_best_value = float(args.resume_best_value)
+
+			resume_lr = scheduled_value_at_step(
+				resume_step, config.opt_lr, config.sched_lr_min,
+				config.sched_lr_factor, config.sched_lr_rate, decay_exp,
+			)
+			resume_alpha_h = scheduled_value_at_step(
+				resume_step, config.alpha_h, config.sched_alpha_h_min,
+				config.sched_alpha_h_factor, config.sched_alpha_h_rate, decay_time,
+			)
+			net.set_lr(resume_lr)
+			net.set_alpha_h(resume_alpha_h)
+			print(
+				f"[resume] Legacy weights-only recovery at step={resume_step}: derived "
+				f"env_steps={resume_env_steps}, lr={net.lr:.8g}, alpha_h={net.alpha_h:.8g}, "
+				f"best={resume_best_value:.6g}. Optimizer/target/RNG/environment state "
+				f"was not present and cannot be recovered retroactively."
+			)
+
+		if config.max_epochs:
+			total_steps = config.max_epochs * config.log_rate
+			if resume_step >= total_steps:
+				raise SystemExit(
+					f"Resume step {resume_step} has already reached the configured run end "
+					f"({config.max_epochs} epochs x {config.log_rate} steps = {total_steps})."
+				)
 
 	if args.trace:
 		problem_debug.trace(net, config.load_model)
@@ -320,32 +576,35 @@ if __name__ == '__main__':
 			print(f"[llm_distill] --llm_distill_shuffle_labels ENABLED (condition C5, random-label control) -- "
 			      f"goal labels permuted across all {len(llm_distill_records)} records")
 
-		print(f"[llm_distill] Stage 1/4: supervised warm-start, {args.llm_distill_warmup_epochs} epoch(s) over {len(llm_distill_records)} records")
-		net.train()
-		for warmup_epoch in range(args.llm_distill_warmup_epochs):
-			perm = np.random.permutation(len(llm_distill_records))
-			epoch_losses = []
-			for i in range(0, len(perm), args.llm_distill_batch):
-				batch_idx = perm[i:i + args.llm_distill_batch]
-				batch_records = [llm_distill_records[j] for j in batch_idx]
-				s_batch = [r['s_true'] for r in batch_records]
-				goal_idx_t = torch.tensor([r['goal_idx'] for r in batch_records], dtype=torch.long, device=config.device)
-				conf_t = torch.tensor([r['confidence'] for r in batch_records], dtype=torch.float32, device=config.device)
+		if args.resume:
+			print("[llm_distill] Resume mode: skipping the already-completed Stage 1 supervised warm-start.")
+		else:
+			print(f"[llm_distill] Stage 1/4: supervised warm-start, {args.llm_distill_warmup_epochs} epoch(s) over {len(llm_distill_records)} records")
+			net.train()
+			for warmup_epoch in range(args.llm_distill_warmup_epochs):
+				perm = np.random.permutation(len(llm_distill_records))
+				epoch_losses = []
+				for i in range(0, len(perm), args.llm_distill_batch):
+					batch_idx = perm[i:i + args.llm_distill_batch]
+					batch_records = [llm_distill_records[j] for j in batch_idx]
+					s_batch = [r['s_true'] for r in batch_records]
+					goal_idx_t = torch.tensor([r['goal_idx'] for r in batch_records], dtype=torch.long, device=config.device)
+					conf_t = torch.tensor([r['confidence'] for r in batch_records], dtype=torch.float32, device=config.device)
 
-				subgoal_logits = net(s_batch, only_subgoal_logits=True, reset_hidden=True)
-				loss_goal = goal_distillation_loss(subgoal_logits, goal_idx_t, conf_t)
+					subgoal_logits = net(s_batch, only_subgoal_logits=True, reset_hidden=True)
+					loss_goal = goal_distillation_loss(subgoal_logits, goal_idx_t, conf_t)
 
-				net.opt.zero_grad()
-				loss_goal.backward()
-				torch.nn.utils.clip_grad_norm_(net.parameters(), config.opt_max_norm)
-				net.opt.step()
-				epoch_losses.append(loss_goal.item())
-			print(f"[llm_distill] warm-start epoch {warmup_epoch + 1}/{args.llm_distill_warmup_epochs}: mean L_goal={np.mean(epoch_losses):.4f}")
+					net.opt.zero_grad()
+					loss_goal.backward()
+					torch.nn.utils.clip_grad_norm_(net.parameters(), config.opt_max_norm)
+					net.opt.step()
+					epoch_losses.append(loss_goal.item())
+				print(f"[llm_distill] warm-start epoch {warmup_epoch + 1}/{args.llm_distill_warmup_epochs}: mean L_goal={np.mean(epoch_losses):.4f}")
 
-		# hard-sync target_net to the warm-started weights (rho=1.0 -> full copy,
-		# see Net.copy_weights: val_new = rho*other + (1-rho)*self) before PPO begins
-		target_net.copy_weights(net, rho=1.0)
-		print("[llm_distill] Stage 1/4 complete -- entering Stage 2/4 (joint PPO + fixed-then-decaying lambda_goal) inside the main training loop")
+			# hard-sync target_net to the warm-started weights (rho=1.0 -> full copy,
+			# see Net.copy_weights: val_new = rho*other + (1-rho)*self) before PPO begins
+			target_net.copy_weights(net, rho=1.0)
+			print("[llm_distill] Stage 1/4 complete -- entering Stage 2/4 (joint PPO + fixed-then-decaying lambda_goal) inside the main training loop")
 
 	# Each parallel env gets its own deterministic-but-distinct seed derived from
 	# config.seed (only when the user actually requested one) -- `i=i` binds the
@@ -365,7 +624,10 @@ if __name__ == '__main__':
 	# ---------------------------
 	# Local per-episode JSON logger
 	# ---------------------------
-	log_dir = os.path.join(os.path.dirname(__file__), 'training_data', 'runs')
+	log_dir = os.environ.get(
+		'NASIMEMU_RUN_LOG_DIR',
+		os.path.join(os.path.dirname(__file__), 'training_data', 'runs'),
+	)
 	os.makedirs(log_dir, exist_ok=True)
 	jsonl_path = os.path.join(log_dir, f'{wandb.run.id}.json')
 
@@ -373,7 +635,10 @@ if __name__ == '__main__':
 	# don't need to look up the wandb run id to tail the current run. Truncated
 	# fresh at the start of THIS run -- the per-run file above (keyed by run id)
 	# remains the collision-safe source of truth if multiple runs ever overlap.
-	latest_dir = os.path.join(os.path.dirname(__file__), 'training_data', 'latest')
+	latest_dir = os.environ.get(
+		'NASIMEMU_LATEST_DIR',
+		os.path.join(os.path.dirname(__file__), 'training_data', 'latest'),
+	)
 	os.makedirs(latest_dir, exist_ok=True)
 	latest_path = os.path.join(latest_dir, 'latest.json')
 	open(latest_path, 'w').close()
@@ -385,8 +650,8 @@ if __name__ == '__main__':
 		except Exception as e:
 			logging.getLogger(__name__).warning(f"Failed to write JSON log: {e}")
 
-	tot_env_steps = 0
-	best_val = float('-inf')
+	tot_env_steps = resume_env_steps
+	best_val = resume_best_value
 	norm_log = []
 	entropy_log = []
 	shaping_log = []
@@ -404,18 +669,32 @@ if __name__ == '__main__':
 		      "labeling because --llm_distill is active and training subgoal_head toward that binding. "
 		      "Without --llm_distill, the same histogram would just be positional index counts (master plan Sec 15.3).")
 
-	if config.force_continue_steps == 0:
+	if config.force_continue_steps >= 0 and resume_step >= config.force_continue_steps:
 		print("Disabling force_continue")
 		net.set_force_continue(False)
 	else:
 		print("Enabling force_continue")
 		net.set_force_continue(True)
 
-	tqdm_main = tqdm(desc='Training', unit=' steps')
+	resume_epoch = resume_step // config.log_rate
+	total_training_steps = config.max_epochs * config.log_rate if config.max_epochs else None
+	tqdm_main = tqdm(desc='Training', unit=' steps', initial=resume_step, total=total_training_steps)
 	s = env.reset()
+	if resume_step:
+		# NASimEmuEnv creates its inner NASim environment on the first reset,
+		# so position the curriculum only after that initialization, then reset
+		# once more to begin the fresh episode at the restored difficulty.
+		env.env_method('set_epoch', resume_epoch)
+		s = env.reset()
+		print(f"[resume] Curriculum positioned at epoch={resume_epoch}; next global step={resume_step + 1}.")
+	# Environment subprocesses cannot be checkpointed and start fresh episodes.
+	# Restore the parent RNG only after construction/reset has consumed its own
+	# random values so future trainer-side sampling continues from the saved
+	# stream whenever a full training-state checkpoint is available.
+	restore_rng_state(resume_rng_state)
 	
 	# Track total episodes completed across all parallel envs for curriculum
-	total_episodes_completed = 0
+	total_episodes_completed = resume_episodes_completed
 	
 	# Get curriculum stage transition epochs dynamically from scenario
 	try:
@@ -423,7 +702,7 @@ if __name__ == '__main__':
 	except:
 		curriculum_transition_epochs = []
 
-	for step in itertools.count(start=1):
+	for step in itertools.count(start=resume_step + 1):
 		trace = []
 
 		hidden_s0 = problem.make_net()		# save internal (recurrent) network state at s_0 and s_last
@@ -616,6 +895,16 @@ if __name__ == '__main__':
 			print(log)
 			wandb.log(log)
 
+			# Update the global best before building checkpoint metadata so both
+			# model.pt and a newly improved model_best.pt carry the same value.
+			split = config.save_best_split
+			metric_name = config.save_best_metric
+			split_perf = eval_perf.get(split) or eval_perf.get('eval_trn')
+			cur_val = split_perf.get(metric_name) if split_perf else None
+			is_new_best = cur_val is not None and cur_val > best_val
+			if is_new_best:
+				best_val = cur_val
+
 			# Write one JSON record per logging interval (epoch-like)
 			def _to_serializable(x):
 				try:
@@ -627,9 +916,13 @@ if __name__ == '__main__':
 				return x
 
 			log_json = {
+				'run_id': wandb.run.id,
+				'trainer_pid': os.getpid(),
 				'timestamp': time.time(),
 				'train_step': int(step),
 				'env_steps_total': int(tot_env_steps),
+				'resume_start_step': int(resume_step),
+				'best_value': float(best_val),
 				'loss': float(_to_serializable(log['loss'])),
 				'grad_mean': float(_to_serializable(log['grad_mean'])),
 				'grad_min': float(_to_serializable(log['grad_min'])),
@@ -659,8 +952,18 @@ if __name__ == '__main__':
 			# save model to wandb
 			model_file = os.path.join(wandb.run.dir, "model.pt")
 			os.makedirs(os.path.dirname(model_file), exist_ok=True)
-			net.save(model_file)
+			training_state = make_training_state(
+				step, tot_env_steps, total_episodes_completed, best_val,
+				net, target_net, args, config,
+			)
+			net.save(model_file, training_state=training_state)
 			wandb.save(model_file)
+
+			if is_new_best:
+				best_model_file = os.path.join(wandb.run.dir, "model_best.pt")
+				net.save(best_model_file, training_state=training_state)
+				wandb.save(best_model_file)
+				print(f"[save_best] new best {split}/{metric_name}={cur_val:.4f} at epoch {current_epoch} -> {best_model_file}")
 		
 
 			# if per-epoch auto mode, roll scenario for next epoch
@@ -671,26 +974,6 @@ if __name__ == '__main__':
 			except Exception as _:
 				pass
  
-			# save best checkpoint if improved -- tracks config.save_best_split/
-			# save_best_metric (-save_best_split/-save_best_metric, default
-			# eval_tst/captured_avg) across the whole run and, when it
-			# improves, saves a SEPARATE model_best.pt alongside the regular
-			# every-epoch model.pt above (which always reflects the latest
-			# epoch, not the best one -- a run that degrades late, e.g. after
-			# the teacher weight has fully decayed to 0 under --llm_distill,
-			# would otherwise end on a worse checkpoint than one seen mid-run).
-			split = config.save_best_split
-			metric_name = config.save_best_metric
-			split_perf = eval_perf.get(split) or eval_perf.get('eval_trn')
-			cur_val = split_perf.get(metric_name) if split_perf else None
-
-			if cur_val is not None and cur_val > best_val:
-				best_val = cur_val
-				best_model_file = os.path.join(wandb.run.dir, "model_best.pt")
-				net.save(best_model_file)
-				wandb.save(best_model_file)
-				print(f"[save_best] new best {split}/{metric_name}={cur_val:.4f} at epoch {current_epoch} -> {best_model_file}")
-
 		# finish if max_epochs exceeded
 		if config.max_epochs and (step // config.log_rate >= config.max_epochs):
 			break

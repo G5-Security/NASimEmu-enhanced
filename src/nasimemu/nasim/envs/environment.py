@@ -59,7 +59,8 @@ class NASimEnv(gym.Env):
                  fully_obs=False,
                  flat_actions=True,
                  flat_obs=True,
-                 training_mode=True):
+                 training_mode=True,
+                 curriculum_total_epochs=None):
         """
         Parameters
         ----------
@@ -85,13 +86,15 @@ class NASimEnv(gym.Env):
         self.flat_actions = flat_actions
         self.flat_obs = flat_obs
         self.training_mode = training_mode
+        self.curriculum_total_epochs = curriculum_total_epochs
 
         # Initialize curriculum manager if enabled
         from .curriculum import CurriculumManager
         if scenario.curriculum.get('enabled', False):
             self.curriculum_manager = CurriculumManager(
                 scenario.curriculum,
-                training_mode=training_mode
+                training_mode=training_mode,
+                total_epochs=curriculum_total_epochs
             )
         else:
             self.curriculum_manager = None

@@ -54,8 +54,14 @@ def a2c(r, v, v_, pi, gamma, alpha_v, alpha_h, q_range=None, num_actions=None):
 ############################################################################################
 #New add
 def _replay_batch(net, s, raw_a, reset_hidden=False):
-    # Pass reset_hidden to forward
-    _, v, pi, _ = net(s, force_action=raw_a, reset_hidden=reset_hidden)
+    # ``reset_hidden`` is a recurrent-policy extension and most feed-forward
+    # policies intentionally do not expose it in ``forward``.  Do not pass the
+    # compatibility keyword for the normal False case; doing so breaks every
+    # non-recurrent PPO replay with ``unexpected keyword argument``.
+    kwargs = {'force_action': raw_a}
+    if reset_hidden:
+        kwargs['reset_hidden'] = True
+    _, v, pi, _ = net(s, **kwargs)
     v = v.flatten()
     pi = pi.flatten()
     return v, pi

@@ -1,3 +1,4 @@
+import os
 import warnings
 
 import torch, numpy as np
@@ -20,8 +21,26 @@ class Net(Module):
         self.lr = config.opt_lr
         self.alpha_h = config.alpha_h
 
-    def save(self, file='model.pt'):
-        torch.save({'state_dict': self.state_dict(), 'ontology_version': self.ONTOLOGY_VERSION}, file)
+    def save(self, file='model.pt', training_state=None):
+        """Save model weights and optional trainer state.
+
+        ``training_state`` deliberately lives outside the module state dict:
+        old checkpoints remain loadable, while ``main.py`` can attach the
+        optimizer, target-network, RNG, schedule, and progress metadata needed
+        for a step-aware restart.
+        """
+        payload = {
+            'state_dict': self.state_dict(),
+            'ontology_version': self.ONTOLOGY_VERSION,
+        }
+        if training_state is not None:
+            payload['training_state'] = training_state
+        # A power loss during torch.save must not destroy the previous usable
+        # checkpoint. Write beside it and atomically replace only after the
+        # complete payload has reached the filesystem interface.
+        tmp_file = f'{file}.tmp'
+        torch.save(payload, tmp_file)
+        os.replace(tmp_file, file)
 
     def load(self, file='model.pt'):
         loaded = torch.load(file, map_location=self.device)
@@ -41,7 +60,7 @@ class Net(Module):
                 f"this load cannot detect that mismatch."
             )
             self.load_state_dict(loaded)
-            return
+            return None
 
         ckpt_version = loaded['ontology_version']
         if ckpt_version is not None and self.ONTOLOGY_VERSION is not None and ckpt_version != self.ONTOLOGY_VERSION:
@@ -51,6 +70,7 @@ class Net(Module):
                 f"bind goal_bank slots to the wrong semantic meaning -- refusing to load."
             )
         self.load_state_dict(loaded['state_dict'])
+        return loaded.get('training_state')
 
     def copy_weights(self, other, rho):
         params_other = list(other.parameters())

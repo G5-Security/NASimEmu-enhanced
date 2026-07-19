@@ -32,6 +32,7 @@ class NASimRRL():
 				'fully_obs': config.fully_obs, 'observation_format': config.observation_format,
 				'augment_with_action': config.augment_with_action, 'random_init': True, 'verbose': False,
 				'training_mode': getattr(config, 'training_mode', True),  # Curriculum: True=training, False=evaluation
+				'curriculum_total_epochs': getattr(config, 'max_epochs', None),  # lets curriculum stages ramp via start_frac/end_frac
 				# auto scenario kwargs (env must accept them; no behavior yet)
 				'auto_mode': getattr(config, 'auto_mode', 'off'),
 				'auto_template': getattr(config, 'auto_template', None),

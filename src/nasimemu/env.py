@@ -71,6 +71,7 @@ class PartiallyObservableWrapper():
 class NASimEmuEnv(gym.Env):
     def __init__(self, scenario_name, emulate=False, step_limit=None, random_init=False, observation_format='matrix', fully_obs=False, augment_with_action=False, verbose=False, feature_dropout_p=0.0, dr_prob_jitter=0.0, dr_cost_jitter=0.0, dr_scan_cost_jitter=0.0,
                  training_mode=True,  # Curriculum learning: True=training, False=evaluation
+                 curriculum_total_epochs=None,  # total run length, lets curriculum stages use start_frac/end_frac
                  # auto scenario generation (plumbing only; no behavior yet)
                  auto_mode='off', auto_template=None, auto_host_range=None, auto_subnet_count=None, auto_topology=None, auto_sensitive_policy=None, auto_seed_base=None, auto_sensitive_jitter=0.0,
                  seed=None):
@@ -101,6 +102,7 @@ class NASimEmuEnv(gym.Env):
         self.dr_cost_jitter = float(dr_cost_jitter or 0.0)
         self.dr_scan_cost_jitter = float(dr_scan_cost_jitter or 0.0)
         self.training_mode = training_mode  # For curriculum learning
+        self.curriculum_total_epochs = curriculum_total_epochs  # for fractional curriculum stage bounds
 
         self.scenario_name = scenario_name
         self.random_init = random_init
@@ -385,7 +387,24 @@ class NASimEmuEnv(gym.Env):
                 scenario = self.scenario_name
 
             if scenario.endswith(".yaml"):        # static scenario
-                scenario = nasim.load_scenario(scenario)
+                # Scenarios with ranged/dynamic subnet sizes (e.g. "6-8")
+                # rebuild a fresh random host-count instance on every load;
+                # under heavy allocation churn this has been observed to hit
+                # rare, non-reproducible corruption inside PyYAML's C-level
+                # parsing state on this class of machine (manifests as
+                # nonsensical exceptions -- AttributeError/UnboundLocalError/
+                # TypeError -- deep in yaml/composer.py or yaml/scanner.py,
+                # never on fixed-size scenarios). It doesn't reproduce twice
+                # in a row, so retrying the load is a cheap, effective
+                # mitigation; see docs/environment_setup_and_fixes.md.
+                scenario_path = scenario
+                for _attempt in range(3):
+                    try:
+                        scenario = nasim.load_scenario(scenario_path)
+                        break
+                    except Exception:
+                        if _attempt == 2:
+                            raise
 
             else:   # generated scenario
                 scenario_params = benchmark.AVAIL_GEN_BENCHMARKS[scenario]
@@ -428,7 +447,8 @@ class NASimEmuEnv(gym.Env):
                 self.env = EmulatedNASimEnv(scenario=scenario)
             else:
                 self.env = NASimEnv(scenario, fully_obs=self.fully_obs, flat_actions=False, flat_obs=False,
-                                  training_mode=self.training_mode)  # Pass training_mode for curriculum
+                                  training_mode=self.training_mode,  # Pass training_mode for curriculum
+                                  curriculum_total_epochs=self.curriculum_total_epochs)
         else:
             # Update scenario on existing env without recreating (preserves curriculum state)
             self.env.scenario = scenario
