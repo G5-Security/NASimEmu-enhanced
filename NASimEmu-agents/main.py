@@ -319,7 +319,8 @@ def get_args(problem_config):
 	parser.add_argument('-force_continue_epochs', type=int, default=0, help="Disable force continue after this epochs (0=disable immediately; -1=never disable)")
 
 	parser.add_argument('-lr', type=float, default=3e-3, help="Initial learning rate")
-	parser.add_argument('-alpha_h', type=float, default=0.3, help="Initial entropy regularization constant")
+	parser.add_argument('-alpha_h', type=float, default=0.3, help="Initial entropy regularization constant (acts on the joint action distribution in rl.py)")
+	parser.add_argument('--alpha_h_manager', type=float, default=0.02, help="NASimNetDHRL-only: coefficient for a dedicated entropy bonus on the manager's categorical subgoal distribution, applied as a separate gradient step over rollout states. Counters manager-goal collapse (rl.py's alpha_h never touches the subgoal marginal). Set 0 to disable and reproduce pre-anti-collapse behavior.")
 	parser.add_argument('-max_norm', type=float, default=3., help="Maximal gradient norm")
 
 	# Learning rate / entropy decay schedules
@@ -352,6 +353,8 @@ def get_args(problem_config):
 	parser.add_argument('--llm_distill_lambda_rate', type=float, default=8000.0, help="Exponential anneal rate (in global training steps) for the joint-training L_goal weight")
 	parser.add_argument('--llm_distill_rl_only_frac', type=float, default=0.1, help="Final fraction of -max_epochs run with the teacher weight forced to exactly 0 (stage 4 of master plan Sec 15.9's schedule -- see llm_distill_lambda_goal()). No effect if -max_epochs is unset.")
 	parser.add_argument('--llm_distill_batch', type=int, default=16, help="Minibatch size sampled from the teacher dataset for each joint-training distillation step")
+	parser.add_argument('--llm_distill_no_balance', action='store_const', const=True, help="Disable inverse-frequency class weighting of the distillation loss. Balancing is ON by default: the teacher dataset is class-imbalanced (mostly GAIN_INITIAL_ACCESS/ESCALATE_PRIVILEGE), and a plain NLL toward the argmax label peaks subgoal_head on the majority class during the Stage-1 warm-start, a direct driver of manager-goal collapse. Weights are normalized to a sample-weighted mean of 1 so lambda_goal's tuned scale is preserved.")
+	parser.add_argument('--llm_distill_label_smooth', type=float, default=0.05, help="Uniform label-smoothing epsilon spread over the 8-goal ontology in the distillation loss. Keeps the warm-start from driving subgoal_head to a hard one-hot peak (another collapse driver). Set 0 to disable.")
 
 	# delegate argparse to problem config
 	problem_config.update_argparse(parser)
@@ -576,6 +579,37 @@ if __name__ == '__main__':
 			print(f"[llm_distill] --llm_distill_shuffle_labels ENABLED (condition C5, random-label control) -- "
 			      f"goal labels permuted across all {len(llm_distill_records)} records")
 
+		# Anti-collapse (Phase 1): class-balanced + label-smoothed distillation.
+		# The teacher dataset is class-imbalanced; a plain NLL to the argmax
+		# label peaks subgoal_head on the majority class during the warm-start,
+		# a direct driver of the "manager converges to one goal" failure.
+		# Compute per-goal inverse-frequency weights ONCE here (normalized to a
+		# sample-weighted mean of 1 so lambda_goal's tuned scale is preserved)
+		# plus a uniform label floor; both are threaded into every
+		# goal_distillation_loss call (warm-start + joint step) below. Computed
+		# after any label shuffle so the weighting matches the labels actually
+		# trained against, and before the resume branch so it exists for the
+		# joint step even when the warm-start is skipped.
+		distill_class_weights = None
+		distill_label_smoothing = float(args.llm_distill_label_smooth)
+		if not args.llm_distill_no_balance:
+			counts = np.bincount(
+				[r['goal_idx'] for r in llm_distill_records], minlength=len(GOAL_NAMES)
+			).astype(np.float64)
+			present = counts > 0
+			inv = np.where(present, 1.0 / np.where(present, counts, 1.0), 0.0)
+			sample_weighted_mean = float((counts * inv).sum() / max(counts.sum(), 1.0))
+			if sample_weighted_mean > 0:
+				inv = inv / sample_weighted_mean
+			distill_class_weights = torch.tensor(inv, dtype=torch.float32, device=config.device)
+			named_counts = {GOAL_NAMES[k]: int(counts[k]) for k in range(len(GOAL_NAMES))}
+			print(f"[llm_distill] class-balanced loss ENABLED -- per-goal counts={named_counts}")
+			print(f"[llm_distill] class weights (normalized, sample-mean=1)={np.round(inv, 3).tolist()}")
+		else:
+			print("[llm_distill] class balancing DISABLED (--llm_distill_no_balance)")
+		if distill_label_smoothing > 0:
+			print(f"[llm_distill] label smoothing eps={distill_label_smoothing}")
+
 		if args.resume:
 			print("[llm_distill] Resume mode: skipping the already-completed Stage 1 supervised warm-start.")
 		else:
@@ -592,7 +626,11 @@ if __name__ == '__main__':
 					conf_t = torch.tensor([r['confidence'] for r in batch_records], dtype=torch.float32, device=config.device)
 
 					subgoal_logits = net(s_batch, only_subgoal_logits=True, reset_hidden=True)
-					loss_goal = goal_distillation_loss(subgoal_logits, goal_idx_t, conf_t)
+					loss_goal = goal_distillation_loss(
+						subgoal_logits, goal_idx_t, conf_t,
+						class_weights=distill_class_weights,
+						label_smoothing=distill_label_smoothing,
+					)
 
 					net.opt.zero_grad()
 					loss_goal.backward()
@@ -658,6 +696,7 @@ if __name__ == '__main__':
 	env_r_log = []
 	goal_hist_log = np.zeros(len(GOAL_NAMES), dtype=np.int64)
 	llm_distill_loss_log = []
+	manager_entropy_log = []
 
 	if args.llm_shaping:
 		print(f"[llm_shaping] ENABLED (condition C2) -- lambda anneal rate = {args.llm_shaping_lambda_rate} steps. Requires -net_class NASimNetDHRL.")
@@ -770,13 +809,44 @@ if __name__ == '__main__':
 				conf_t = torch.tensor([r['confidence'] for r in batch_records], dtype=torch.float32, device=config.device)
 
 				subgoal_logits = net(s_batch, only_subgoal_logits=True, reset_hidden=True)
-				loss_goal = lambda_goal_t * goal_distillation_loss(subgoal_logits, goal_idx_t, conf_t)
+				loss_goal = lambda_goal_t * goal_distillation_loss(
+					subgoal_logits, goal_idx_t, conf_t,
+					class_weights=distill_class_weights,
+					label_smoothing=distill_label_smoothing,
+				)
 
 				net.opt.zero_grad()
 				loss_goal.backward()
 				torch.nn.utils.clip_grad_norm_(net.parameters(), config.opt_max_norm)
 				net.opt.step()
 				llm_distill_loss_log.append(loss_goal.item() / max(lambda_goal_t, 1e-6))
+
+		# Anti-collapse (Phase 1): dedicated entropy bonus on the DHRL manager's
+		# categorical subgoal distribution, applied as a SEPARATE gradient step
+		# (mirrors the joint-distill step above's rationale: no changes to
+		# rl.py's shared ppo(), which never regularizes the subgoal marginal --
+		# see rl.py loss_h, computed over the JOINT total_prob). Evaluated on a
+		# randomly-chosen rollout step's states (on-distribution, cheap: one
+		# extra forward instead of ppo_t) via the same side-effect-free
+		# only_subgoal_logits+reset_hidden path the distill step uses, so it
+		# never perturbs the in-progress recurrent rollout state. Maximizing
+		# entropy == minimizing -entropy. Gated to NASimNetDHRL (the only net
+		# with a subgoal head) and to a positive coefficient.
+		manager_entropy_step = None
+		if args.net_class == 'NASimNetDHRL' and config.alpha_h_manager > 0.0:
+			tau_ent = np.random.randint(len(trace))
+			s_ent = trace[tau_ent][0]
+			subgoal_logits_ent = net(s_ent, only_subgoal_logits=True, reset_hidden=True)
+			logp_ent = torch.log_softmax(subgoal_logits_ent, dim=-1)
+			p_ent = logp_ent.exp()
+			manager_entropy = -(p_ent * logp_ent).sum(dim=-1).mean()
+			loss_manager_ent = -config.alpha_h_manager * manager_entropy
+			net.opt.zero_grad()
+			loss_manager_ent.backward()
+			torch.nn.utils.clip_grad_norm_(net.parameters(), config.opt_max_norm)
+			net.opt.step()
+			manager_entropy_step = float(manager_entropy.item())
+			manager_entropy_log.append(manager_entropy_step)
 
 		# print([x.item() for x in pi_deviations])
 
@@ -879,6 +949,33 @@ if __name__ == '__main__':
 			goal_hist_log = np.zeros(len(GOAL_NAMES), dtype=np.int64)
 			llm_distill_loss_log = []
 
+			# Anti-collapse detector (Phase 1): quantify how spread the manager's
+			# subgoal usage was this interval so "converges to one goal" is a
+			# logged number, not an eyeballed histogram. Shannon entropy (nats)
+			# of the per-epoch goal histogram + count of goals with >=1% share:
+			# a healthy run keeps entropy well above 0 with several goals active;
+			# a collapse drives entropy -> 0 and active_count -> 1. manager_entropy
+			# is the mean per-state subgoal entropy the alpha_h_manager step saw.
+			# Only meaningful for NASimNetDHRL (the only net that fills goal_hist).
+			goal_hist_entropy = None
+			goal_active_count = None
+			if args.net_class == 'NASimNetDHRL':
+				gh = goal_hist_snapshot.astype(np.float64)
+				gh_total = gh.sum()
+				if gh_total > 0:
+					gh_p = gh / gh_total
+					nz = gh_p > 0
+					goal_hist_entropy = float(-(gh_p[nz] * np.log(gh_p[nz])).sum())
+					goal_active_count = int((gh_p >= 0.01).sum())
+				else:
+					goal_hist_entropy = 0.0
+					goal_active_count = 0
+				log['goal_hist_entropy'] = goal_hist_entropy
+				log['goal_active_count'] = goal_active_count
+				if manager_entropy_log:
+					log['manager_entropy'] = float(np.mean(manager_entropy_log))
+			manager_entropy_log = []
+
 			# Print curriculum status at meaningful intervals
 			# Print at: early epochs (0-5), every 10 epochs, and at stage transitions from scenario
 			should_print = (
@@ -946,6 +1043,13 @@ if __name__ == '__main__':
 			if args.net_class == 'NASimNetDHRL' and int(goal_hist_snapshot.sum()) > 0:
 				log_json['goal_hist'] = {name: int(c) for name, c in zip(GOAL_NAMES, goal_hist_snapshot.tolist())}
 				log_json['goal_hist_labeled'] = bool(args.llm_distill)
+				# Anti-collapse detector, persisted so a collapse is auditable
+				# offline from the JSONL alone (not just live in wandb).
+				if goal_hist_entropy is not None:
+					log_json['goal_hist_entropy'] = float(goal_hist_entropy)
+					log_json['goal_active_count'] = int(goal_active_count)
+				if 'manager_entropy' in log:
+					log_json['manager_entropy'] = float(log['manager_entropy'])
 			_append_jsonl(jsonl_path, log_json)
 			_append_jsonl(latest_path, log_json)
 			

@@ -33,6 +33,15 @@ class Object:
 		self.alpha_v = 0.1 / self.ppo_k
 		self.alpha_h = args.alpha_h
 
+		# Dedicated entropy bonus on the DHRL manager's categorical subgoal
+		# distribution (NASimNetDHRL only). PPO's alpha_h in rl.py regularizes
+		# the JOINT action prob (a_prob * continue_probs * subgoal_factor) and
+		# never the subgoal marginal, so nothing there resists the manager
+		# collapsing onto a single goal. This coefficient scales a separate
+		# entropy-maximizing step over rollout states in main.py. getattr keeps
+		# the label_states.py SimpleNamespace args (no such field) working.
+		self.alpha_h_manager = getattr(args, 'alpha_h_manager', 0.0)
+
 		self.force_continue_steps = args.force_continue_epochs * self.epoch
 
 		self.target_rho = 0.1
