@@ -10,6 +10,11 @@ Each round:
      as the rollout policy (round 0 has no checkpoint yet, so it falls back
      to --policy random) -- this is the actual DAgger move: label states the
      current student visits, not just the original labeling policies'.
+     Collection runs with --hardest_stage by default (Phase 2/3): the labeling
+     env is pinned to the final, IDS-on curriculum stage so the visited states
+     carry detection pressure and the teacher can emit REDUCE_DETECTION -- the
+     stealth labels the curriculum-aligned distillation (main.py
+     --llm_distill_rewarm_scale) is built to revive when IDS turns on.
   2. Append those records into the same --out_dir (true aggregation, per
      "DAgger" = Dataset Aggregation -- prior rounds' data is never discarded)
      and re-split at the episode level (llm_teacher/split_dataset.py) so the
@@ -100,13 +105,18 @@ def _compute_target_records(out_dir_abs, records_per_round):
     return existing_valid, existing_valid + records_per_round
 
 
-def run_round(round_idx, args, prev_checkpoint):
-    print(f"\n{'='*80}\n[dagger_loop] Round {round_idx}/{args.rounds - 1}\n{'='*80}")
+def _build_collect_cmd(args, prev_checkpoint, target_records):
+    """Assemble the llm_teacher.label_states command for one round's
+    collection. Split out (like _compute_target_records) so the command shape
+    -- especially that IDS-on collection (--hardest_stage) and the on-policy
+    checkpoint rollout are actually wired through -- is unit-testable without
+    launching a real collection subprocess.
 
-    # Step 1-2: collect + aggregate.
-    out_dir_abs = args.out_dir if os.path.isabs(args.out_dir) else os.path.join(AGENTS_DIR, args.out_dir)
-    existing_valid, target_records = _compute_target_records(out_dir_abs, args.records_per_round)
-
+    --hardest_stage is the Phase 2/3 alignment move: it pins the labeling env
+    to the final, IDS-on curriculum stage so the states the student visits (and
+    the teacher labels) actually contain detection pressure. Without it, DAgger
+    relabels IDS-off baseline states and the aggregated dataset never gains the
+    REDUCE_DETECTION examples the curriculum-aligned distillation needs."""
     policy = "checkpoint" if prev_checkpoint is not None else "random"
     collect_cmd = [
         sys.executable, "-m", "llm_teacher.label_states",
@@ -116,10 +126,23 @@ def run_round(round_idx, args, prev_checkpoint):
         "--policy", policy,
         "--teacher_backend", args.teacher_backend,
     ]
+    if args.hardest_stage:
+        collect_cmd += ["--hardest_stage"]
     if prev_checkpoint is not None:
         collect_cmd += ["--checkpoint_path", prev_checkpoint]
     if args.model:
         collect_cmd += ["--model", args.model]
+    return collect_cmd
+
+
+def run_round(round_idx, args, prev_checkpoint):
+    print(f"\n{'='*80}\n[dagger_loop] Round {round_idx}/{args.rounds - 1}\n{'='*80}")
+
+    # Step 1-2: collect + aggregate.
+    out_dir_abs = args.out_dir if os.path.isabs(args.out_dir) else os.path.join(AGENTS_DIR, args.out_dir)
+    existing_valid, target_records = _compute_target_records(out_dir_abs, args.records_per_round)
+
+    collect_cmd = _build_collect_cmd(args, prev_checkpoint, target_records)
     print(f"[dagger_loop] round {round_idx} collection: {existing_valid} existing -> {target_records} target: "
           f"{' '.join(shlex.quote(c) for c in collect_cmd)}")
     if not args.dry_run:
@@ -172,6 +195,12 @@ def main():
     ap.add_argument("--checkpoint_dir", default=os.path.join("training_data", "dagger_checkpoints"))
     ap.add_argument("--test_frac", type=float, default=0.2, help="Re-applied every round after aggregation, see llm_teacher/split_dataset.py")
     ap.add_argument("--split_seed", type=int, default=0)
+    ap.add_argument("--hardest_stage", action=argparse.BooleanOptionalAction, default=True,
+                     help="Collect each round with the labeling env pinned to the final, IDS-on "
+                          "curriculum stage (label_states.py --hardest_stage). ON by default: the "
+                          "aggregated dataset only gains REDUCE_DETECTION examples if the states the "
+                          "student visits actually contain detection pressure. Use --no-hardest_stage "
+                          "for the original IDS-off baseline collection.")
     ap.add_argument("--teacher_backend", choices=["llm", "heuristic", "llm_cascade"], default="llm", help="Passed through to every round's llm_teacher.label_states call")
     ap.add_argument("--model", default=None, help="Passed through to every round's llm_teacher.label_states call (ignored for --teacher_backend heuristic)")
     ap.add_argument("--initial_checkpoint", default=None,
