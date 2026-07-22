@@ -266,7 +266,7 @@ def validate_resume_run_config(saved, args, config):
 			"Keep the original endpoint or extend it."
 		)
 
-def llm_distill_lambda_goal(step, args, config):
+def llm_distill_lambda_goal(step, args, config, transition_steps=None):
 	"""Master plan Sec 15.9's four-stage schedule: stage 2/3 is the
 	fixed-then-decaying joint weight (anneal_lambda alone), stage 4 is
 	RL-only with the teacher weight forced to EXACTLY 0 -- anneal_lambda's
@@ -275,13 +275,33 @@ def llm_distill_lambda_goal(step, args, config):
 	This forces it exactly once the configured final fraction of training
 	is reached. Only takes effect when -max_epochs is set (an unbounded run
 	has no "final fraction" to compute against, so it falls back to the
-	plain decay for the whole run)."""
+	plain decay for the whole run).
+
+	Phase 2 (curriculum-aligned re-warm): with a global-step decay alone,
+	lambda_goal reaches ~0 long before the curriculum turns IDS on (default
+	ramp puts IDS at 30-100% of the run), so the teacher's REDUCE_DETECTION
+	guidance is gone exactly when the agent first meets detection. When
+	``transition_steps`` (the global-step positions of curriculum stage
+	changes) is supplied and ``--llm_distill_rewarm_scale`` > 0, the decay is
+	re-anchored to the most recent stage transition and restarted from
+	lambda_start*rewarm_scale -- reviving the teacher each time the environment
+	shifts under the agent, IDS-on stages included. transition_steps=None or
+	rewarm_scale=0 -> decays from global step 0, identical to pre-Phase-2
+	behavior. The RL-only final-fraction hard-zero still applies on top."""
 	if config.max_epochs:
 		total_steps = config.max_epochs * config.log_rate
 		rl_only_start_step = total_steps * (1.0 - args.llm_distill_rl_only_frac)
 		if step >= rl_only_start_step:
 			return 0.0
-	return anneal_lambda(step, lambda_start=args.llm_distill_lambda_start, lambda_min=0.0, rate=args.llm_distill_lambda_rate)
+	anchor = 0
+	lam_start = args.llm_distill_lambda_start
+	rewarm_scale = getattr(args, 'llm_distill_rewarm_scale', 0.0)
+	if transition_steps and rewarm_scale > 0.0:
+		past = [t for t in transition_steps if 0 < t <= step]
+		if past:
+			anchor = max(past)
+			lam_start = args.llm_distill_lambda_start * rewarm_scale
+	return anneal_lambda(step - anchor, lambda_start=lam_start, lambda_min=0.0, rate=args.llm_distill_lambda_rate)
 
 def init_seed(seed):
 	np.random.seed(seed)
@@ -355,6 +375,7 @@ def get_args(problem_config):
 	parser.add_argument('--llm_distill_batch', type=int, default=16, help="Minibatch size sampled from the teacher dataset for each joint-training distillation step")
 	parser.add_argument('--llm_distill_no_balance', action='store_const', const=True, help="Disable inverse-frequency class weighting of the distillation loss. Balancing is ON by default: the teacher dataset is class-imbalanced (mostly GAIN_INITIAL_ACCESS/ESCALATE_PRIVILEGE), and a plain NLL toward the argmax label peaks subgoal_head on the majority class during the Stage-1 warm-start, a direct driver of manager-goal collapse. Weights are normalized to a sample-weighted mean of 1 so lambda_goal's tuned scale is preserved.")
 	parser.add_argument('--llm_distill_label_smooth', type=float, default=0.05, help="Uniform label-smoothing epsilon spread over the 8-goal ontology in the distillation loss. Keeps the warm-start from driving subgoal_head to a hard one-hot peak (another collapse driver). Set 0 to disable.")
+	parser.add_argument('--llm_distill_rewarm_scale', type=float, default=0.5, help="Phase 2 curriculum-aligned re-warm: when the curriculum changes stage (e.g. IDS turns on), restart the lambda_goal decay from lambda_start*THIS scale instead of letting the global-step anneal leave it at ~0. Revives the teacher's guidance (notably REDUCE_DETECTION) exactly when the environment shifts under the agent. 0 disables (pure global-step decay, pre-Phase-2 behavior); requires a curriculum with stage transitions and only pairs meaningfully with a dataset labeled over IDS-on states (label_states.py --hardest_stage).")
 
 	# delegate argparse to problem config
 	problem_config.update_argparse(parser)
@@ -741,6 +762,19 @@ if __name__ == '__main__':
 	except:
 		curriculum_transition_epochs = []
 
+	# Phase 2: convert stage-transition epochs to global-step positions so the
+	# teacher weight (llm_distill_lambda_goal) can re-warm at each curriculum
+	# shift, IDS-on stages included. Empty when no curriculum -> re-warm is a
+	# no-op and the schedule stays the pure global-step decay.
+	curriculum_transition_steps = [int(e) * config.log_rate for e in curriculum_transition_epochs]
+	if args.llm_distill and getattr(args, 'llm_distill_rewarm_scale', 0.0) > 0.0:
+		if curriculum_transition_steps:
+			print(f"[llm_distill] Phase 2 curriculum-aligned re-warm ENABLED "
+			      f"(scale={args.llm_distill_rewarm_scale}) at stage-transition steps={curriculum_transition_steps}")
+		else:
+			print("[llm_distill] Phase 2 re-warm requested but no curriculum stage transitions "
+			      "were found -- lambda_goal falls back to the plain global-step decay.")
+
 	for step in itertools.count(start=resume_step + 1):
 		trace = []
 
@@ -799,7 +833,7 @@ if __name__ == '__main__':
 		# pass; documented here rather than silently simplified.
 		lambda_goal_t = 0.0
 		if args.llm_distill:
-			lambda_goal_t = llm_distill_lambda_goal(step, args, config)
+			lambda_goal_t = llm_distill_lambda_goal(step, args, config, curriculum_transition_steps)
 			if lambda_goal_t > 1e-6:
 				batch_n = min(args.llm_distill_batch, len(llm_distill_records))
 				batch_idx = np.random.choice(len(llm_distill_records), size=batch_n, replace=False)
@@ -923,7 +957,7 @@ if __name__ == '__main__':
 				shaping_log = []
 				env_r_log = []
 
-			distill_lambda_cur = llm_distill_lambda_goal(step, args, config) if args.llm_distill else None
+			distill_lambda_cur = llm_distill_lambda_goal(step, args, config, curriculum_transition_steps) if args.llm_distill else None
 			distill_loss_cur = float(np.mean(llm_distill_loss_log)) if (args.llm_distill and llm_distill_loss_log) else None
 			if args.llm_distill:
 				log['llm_distill_lambda'] = distill_lambda_cur

@@ -46,6 +46,37 @@ def test_enumerate_host_chosen_for_unscanned_reachable_host():
     assert target == "1.0"
 
 
+def test_reduce_detection_fires_on_high_observable_ids_level_overriding_escalate():
+    # A user-access host would normally trigger ESCALATE_PRIVILEGE, but once its
+    # observable detection level is high the stealth emergency takes priority.
+    # ids_threshold stays 0 (hidden from observation) on purpose -- the rule must
+    # fire on ids_level alone.
+    summary = {"hosts": [{"addr": "1.0", "access": "user", "reachable": True, "os": ["linux"], "services": [],
+                          "processes": [], "ids_level": 0.75, "ids_threshold": 0.0, "compromised": True}],
+               "recent_actions": []}
+    goal, target, _ = _decide(summary)
+    assert goal == "REDUCE_DETECTION"
+    assert target is None
+
+
+def test_reduce_detection_overrides_capture_for_root_host_under_detection():
+    summary = {"hosts": [{"addr": "2.3", "access": "root", "reachable": True, "os": ["linux"], "services": [],
+                          "processes": [], "ids_level": 0.6, "ids_threshold": 0.0, "compromised": True}],
+               "recent_actions": []}
+    goal, _target, _ = _decide(summary)
+    assert goal == "REDUCE_DETECTION"
+
+
+def test_reduce_detection_does_not_fire_when_detection_low():
+    # Low observable detection -> normal priority resumes (escalate the user host).
+    summary = {"hosts": [{"addr": "1.0", "access": "user", "reachable": True, "os": ["linux"], "services": [],
+                          "processes": [], "ids_level": 0.2, "ids_threshold": 0.0, "compromised": True}],
+               "recent_actions": []}
+    goal, target, _ = _decide(summary)
+    assert goal == "ESCALATE_PRIVILEGE"
+    assert target == "1.0"
+
+
 def test_default_discover_subnet_on_empty_state():
     summary = {"hosts": [], "subnets": [], "recent_actions": []}
     goal, target, _ = _decide(summary)

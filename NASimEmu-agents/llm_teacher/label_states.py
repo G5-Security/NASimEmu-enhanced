@@ -166,11 +166,31 @@ def _random_action(env):
 
 
 def collect(args):
+    # Phase 2: with --hardest_stage the env is built in evaluation mode
+    # (training_mode=False), which makes CurriculumManager pin the final,
+    # hardest curriculum stage -- IDS fully on -- from the first reset. That is
+    # what lets detection (ids_level) actually accumulate, so the heuristic/LLM
+    # teacher's REDUCE_DETECTION rule can fire and the dataset gains stealth
+    # labels. Labeling in the default training_mode leaves IDS effectively off
+    # (baseline stage), which is why an existing default-built dataset has
+    # almost no REDUCE_DETECTION records.
     env = NASimEmuEnv(
         scenario_name=args.scenario,
         step_limit=args.step_limit,
         observation_format="graph_v2",
+        training_mode=(not args.hardest_stage),
     )
+    if args.hardest_stage:
+        # The inner NASim env (and its curriculum application) is created lazily
+        # on the first reset, so read IDS state only after one -- reading before
+        # would see the pre-reset default and misreport IDS as off. The collect
+        # loop resets again per episode, so this throwaway reset is harmless.
+        env.reset()
+        from nasimemu.nasim.envs.host_vector import HostVector
+        ids_enabled = bool((getattr(HostVector, 'ids_config', None) or {}).get('enabled', False))
+        print(f"[label_states] --hardest_stage ON: env pinned to final curriculum stage "
+              f"(training_mode=False). IDS enabled={ids_enabled}. "
+              f"REDUCE_DETECTION becomes labelable once accessed hosts accumulate detection.")
     writer = DatasetWriter(args.out_dir)
 
     # Teacher backend dispatch. 'llm' (default): single-model calls, unchanged.
@@ -342,6 +362,12 @@ def main():
                           "values to mix policies into one dataset.")
     ap.add_argument("--checkpoint_path", default=None,
                      help="Path to a NASimNetDHRL checkpoint (required for --policy checkpoint)")
+    ap.add_argument("--hardest_stage", action="store_true",
+                     help="Phase 2: build the env in evaluation mode so the curriculum is pinned to its "
+                          "final (hardest) stage -- IDS fully on -- for the whole collection. Use this to "
+                          "collect a dataset whose states actually contain detection pressure, so the "
+                          "teacher labels REDUCE_DETECTION. Pairs with main.py's --llm_distill_rewarm_scale, "
+                          "which revives the teacher weight when the training curriculum turns IDS on.")
     args = ap.parse_args()
     collect(args)
 

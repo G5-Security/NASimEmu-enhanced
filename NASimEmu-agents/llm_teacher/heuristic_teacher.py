@@ -25,6 +25,15 @@ from .validator import validate_teacher_output
 MODEL_NAME = "heuristic-v1"
 DEFAULT_HORIZON = 4
 
+# Observable detection level (0..1) at or above which an already-accessed host
+# is treated as a stealth emergency. The IDS *threshold* is hidden from
+# observation (host_vector.observe exposes detection_level but not the
+# threshold, so summarize_state reports ids_threshold=0), so this keys on the
+# OBSERVABLE ids_level in absolute terms -- the same signal the agent sees.
+# Base thresholds are typically 0.7-0.8, so 0.6 fires proactively, leaving the
+# agent room to reduce detection before crossing the (hidden) threshold.
+REDUCE_DETECTION_LEVEL = 0.6
+
 
 def _summary_hash(summary):
     blob = json.dumps(summary, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -35,6 +44,18 @@ def _decide(summary):
     """Returns (goal, target_host_addr_or_None, reason_code). Priority order
     mirrors a plausible greedy pentesting strategy, cheapest signal first."""
     hosts = summary["hosts"]
+
+    # Stealth emergency, checked FIRST: if a host we already have a foothold on
+    # is close to being detected, reducing detection takes priority over
+    # escalating or capturing -- getting quarantined loses the foothold
+    # entirely. Keyed on the observable ids_level (the threshold is hidden).
+    # Without this top-priority check REDUCE_DETECTION is unreachable: it needs
+    # access != "none", but any user-access host triggers ESCALATE_PRIVILEGE and
+    # any root-access host triggers CAPTURE_SENSITIVE_HOST below it, so control
+    # never reaches a lower-priority detection rule.
+    for h in hosts:
+        if h["access"] != "none" and h["ids_level"] >= REDUCE_DETECTION_LEVEL:
+            return "REDUCE_DETECTION", None, "observable_detection_high"
 
     for h in hosts:
         if h["access"] == "user":
