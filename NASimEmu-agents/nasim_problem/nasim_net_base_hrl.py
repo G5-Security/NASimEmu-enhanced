@@ -130,6 +130,32 @@ class NASimNetDHRL(Net):
         self.ep_t = None
         self.ep_limit = getattr(config, "step_limit", getattr(config, "episode_step_limit", 400))
 
+        # Post-hoc inference-time component interventions (docs/eval_revision_plan.tex,
+        # Step 3). All default to False/off: an untouched checkpoint's forward pass
+        # is bit-identical to before these existed. Each flips exactly one
+        # mechanism at the precise point in forward() where it actually takes
+        # effect, following the same pattern as the pre-existing force_continue
+        # above (added for Step 5's "no learned stopping" condition, reused as-is
+        # here) -- deliberately not implemented as external monkey-patching of
+        # forward()'s local tensors/submodules, which would be fragile against
+        # this file's own internal layout (e.g. exactly where in a concatenated
+        # tensor the goal vector's columns start).
+        self.disable_ids_branch = False        # ids_bias forced to 0 (post-projection)
+        self.disable_recurrent_memory = False  # manager_gnn.hidden cleared every forward(), not just per-episode
+        self.disable_goal_persistence = False  # subgoal_steps_remaining forced to 0 every forward() -> H=1
+        self.disable_goal_conditioning = False # goal_per_node (worker input only) forced to 0
+
+        # Follow-up A (does the IDS signal drive goal choice?): restrict which
+        # subgoals the manager may pick at inference time. None = all eight (the
+        # trained behaviour). A tuple of indices masks every other goal's logit
+        # to -inf before the softmax, so `(k,)` forces goal k and omitting one
+        # index blocks that goal. `record_subgoal_probs` keeps the manager's
+        # goal distribution from the last forward() for per-step tracing; both
+        # default to no-ops.
+        self.allowed_goals = None
+        self.record_subgoal_probs = False
+        self.last_subgoal_probs = None
+
     @staticmethod
     def prepare_batch(s_batch):
         node_feats, edge_index, node_index, pos_index = zip(*s_batch)
@@ -223,12 +249,22 @@ class NASimNetDHRL(Net):
         x = torch.cat([x, pos_enc], dim=1)
         x = self.embed_node(x)
 
+        # Step 3 "no recurrent memory": clear the GRU state *every* forward
+        # call (not just at episode start via reset_state()), so the manager
+        # message-passing below runs stateless -- MultiMessagePassingWithGlobalNodeAndLastGRUGlobal.forward()
+        # (graph_nns.py) lazily reinitializes hidden to zeros on the next
+        # call whenever it is None, the same path a fresh episode uses.
+        if self.disable_recurrent_memory:
+            self.manager_gnn.hidden = None
+
         # Manager message passing with recurrent global state
         x_mgr, x_global = self.manager_gnn(
             x, None, batch.edge_attr, batch.edge_index, batch_ind, batch.num_graphs, data_lens
         )
         x_global = self.manager_norm(x_global)
         ids_bias = self.ids_projection(ids_summary)
+        if self.disable_ids_branch:
+            ids_bias = torch.zeros_like(ids_bias)
         x_global = x_global + ids_bias
 
         self._ensure_subgoal_state(batch_size)
@@ -278,8 +314,22 @@ class NASimNetDHRL(Net):
                 ) = saved_state
             return subgoal_logits
 
+        if self.allowed_goals is not None:
+            goal_mask = torch.full_like(subgoal_logits, float("-inf"))
+            goal_mask[:, list(self.allowed_goals)] = 0.0
+            subgoal_logits = subgoal_logits + goal_mask
         subgoal_probs = torch.softmax(subgoal_logits, dim=-1)
+        if self.record_subgoal_probs:
+            self.last_subgoal_probs = subgoal_probs.detach().clone()
         switch_probs = self.subgoal_switch(x_global).clamp(1e-6, 1 - 1e-6)
+
+        # Step 3 "no goal persistence": force the persistence counter to have
+        # already expired before every decision (equivalent to an
+        # inference-time horizon of H=1), so need_new_subgoal below is True
+        # every step and the manager must resample a subgoal every step
+        # rather than holding one across self.goal_horizon steps.
+        if self.disable_goal_persistence and self.subgoal_steps_remaining is not None:
+            self.subgoal_steps_remaining = torch.zeros_like(self.subgoal_steps_remaining)
 
         need_new_subgoal = self.subgoal_steps_remaining <= 0
         selected_subgoals = self.current_subgoal_idx.clone()
@@ -328,6 +378,13 @@ class NASimNetDHRL(Net):
         self.subgoal_steps_remaining = next_steps
 
         goal_per_node = goal_vectors[batch_ind]
+        if self.disable_goal_conditioning:
+            # Deliberately only the worker's copy (goal_per_node), matching
+            # the plan's "replace the goal vector supplied to the worker" --
+            # value_context below keeps its own goal_vectors term untouched,
+            # so this intervention doesn't also change the value/termination
+            # head's inputs.
+            goal_per_node = torch.zeros_like(goal_per_node)
 
         # Worker: goal-conditioned graph policy
         worker_input = torch.cat([x_mgr, goal_per_node], dim=1)
@@ -450,12 +507,53 @@ class NASimNetDHRL(Net):
     def set_force_continue(self, force):
         self.force_continue = force
 
+    def set_allowed_goals(self, allowed=None):
+        """Follow-up A: restrict the manager to these goal indices (None restores all)."""
+        if allowed is not None:
+            allowed = tuple(int(k) for k in allowed)
+            if not allowed or any(k < 0 or k >= self.num_subgoals for k in allowed):
+                raise ValueError(f"allowed goals must be a non-empty subset of range({self.num_subgoals}): {allowed}")
+        self.allowed_goals = allowed
+
+    def set_component_interventions(self, disable_ids_branch=False, disable_recurrent_memory=False,
+                                     disable_goal_persistence=False, disable_goal_conditioning=False):
+        """Step 3 post-hoc inference-time interventions (docs/eval_revision_plan.tex).
+        One call point for all four flags added in __init__, so a caller
+        restoring the "full checkpoint" reference condition can do so in one
+        line rather than resetting each flag individually and risking
+        leaving one on by accident between conditions."""
+        self.disable_ids_branch = disable_ids_branch
+        self.disable_recurrent_memory = disable_recurrent_memory
+        self.disable_goal_persistence = disable_goal_persistence
+        self.disable_goal_conditioning = disable_goal_conditioning
+
     def reset_state(self, batch_mask=None):
         if batch_mask is None:
             self.current_subgoal_idx = None
             self.subgoal_steps_remaining = None
             self.current_goal_vec = None
             self.batch_ind = None
+            # Bug found via docs/eval_revision_plan.tex Step 1 determinism
+            # testing: this full-reset branch cleared everything the masked
+            # (batch_mask is not None) branch below clears -- current
+            # subgoal, goal vector, GRU hidden state -- except self.ep_t.
+            # forward() re-initializes ep_t lazily only when it is None or
+            # the wrong batch size ("if self.ep_t is None or
+            # self.ep_t.numel() != batch_size"), so a stale ep_t from a
+            # previous episode silently carried into the next one whenever
+            # code calls reset_state() with no argument to start a new
+            # episode on a reused net object -- exactly what every episode
+            # loop in this repo does (nasim_debug.py's own per-step
+            # `net.reset_state(d_)` uses the masked branch and was correct;
+            # experiments/evaluate_llm_selector.py and experiments/
+            # eval_harness.py both call the unmasked form between episodes
+            # and were not). Effect: `too_early = self.ep_t.flatten() <
+            # min_steps` (this file, forward()) stopped gating termination
+            # from the second episode onward on a reused net, so identical
+            # seeds could produce different episodes purely from leftover
+            # progress-counter state, not from any real environment or
+            # policy randomness.
+            self.ep_t = None
             self.manager_gnn.reset_state(batch_mask)
         else:
             if not isinstance(batch_mask, torch.Tensor):

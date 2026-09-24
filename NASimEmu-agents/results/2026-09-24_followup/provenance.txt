@@ -1,0 +1,10 @@
+follow-up experiments A-H, started 2026-09-24T17:29:57+06:00
+git HEAD: 9b4a3fb93c3fc8029030c717d52e36aa0fb8a9e5 (working tree dirty; evaluation code uncommitted)
+checkpoints: final=eval_checkpoints/pendhrl_c0_seed1_final.pt best=eval_checkpoints/pendhrl_c0_seed1_best.pt (see eval_checkpoints/manifest.json)
+
+H2 jobs (best checkpoint vs final, same seeds): jobs_H2.txt
+D jobs (parameter sensitivity, 18 variants x 300 episodes): jobs_D.txt
+G jobs (IDS delay sweep 5/10/25/50 x 500): jobs_G.txt
+
+B/A/E/F jobs: jobs_BAEF.txt (B detection counts x8, A goal masks x11 + traces x4, E scan noise observed x4, F generated networks x8)
+F_ref jobs (hand-made scenarios with per-episode sensitive-host counts, 5 x 200): jobs_Fref.txt

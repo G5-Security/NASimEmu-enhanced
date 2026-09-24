@@ -1,0 +1,43 @@
+{
+  "checkpoints": [
+    {
+      "model_name": "pendhrl_c0_seed1",
+      "primary_for_evaluation": "final",
+      "files": {
+        "best": {"path": "eval_checkpoints/pendhrl_c0_seed1_best.pt", "sha256": "4e00263a5636f8fc77a46554b28f6034ba3866428f5dcc82ba7e24bcfdd29a00", "train_step": 12900},
+        "final": {"path": "eval_checkpoints/pendhrl_c0_seed1_final.pt", "sha256": "eec32a4fdabdeb7d141134a4dcca30c58b0b55dfd5fc5b88efe43e9f42aad456", "train_step": 20000}
+      },
+      "source_run": "NASimEmu-agents/wandb/offline-run-20260923_205124-g9t68f9h (wandb id g9t68f9h), trained 2026-09-23 20:51 to 2026-09-24 08:23",
+      "description": "Pen-DHRL baseline, condition C0: no LLM shaping, no LLM distillation. Single seed.",
+      "net_class": "NASimNetDHRL",
+      "harness_flags": {"use_a_t": true, "observation_format": "graph_v2", "augment_with_action": false, "mp_iterations": 3, "emb_dim": 64, "step_limit": 400},
+      "training": {
+        "scenarios": ["corp_100hosts_dynamic", "corp_100hosts_dynamic_varA", "corp_100hosts_dynamic_varB"],
+        "seed": 1,
+        "batch": 128, "epoch": 100, "max_epochs": 200,
+        "lr": 0.0007, "alpha_h": 0.02,
+        "source_of_truth": "training_state.run_config embedded in the checkpoint"
+      },
+      "best_checkpoint_selection": {
+        "split": "eval_tst",
+        "test_scenario": "corp_100hosts_dynamic",
+        "metric": "captured_avg",
+        "best_value": 30.15625,
+        "note": "Applies to model_best.pt only, which is NOT used for the reported results (the final-step model.pt is, per the user). model_best.pt was chosen using the dynamic scenario on the old 64-env length-biased trainer eval. The final checkpoint was not selected on any evaluation scenario; the dynamic scenario is still not held out for it because it is in the training list."
+      },
+      "scenario_roles": {
+        "corp_100hosts_dynamic": {"role": "in-distribution", "held_out": false, "reason": "in the training list AND used for best-checkpoint selection"},
+        "corp_100hosts_dynamic_varA": {"role": "parameter shift", "held_out": false, "reason": "in the training list"},
+        "corp_100hosts_dynamic_varB": {"role": "topology and parameter shift", "held_out": false, "reason": "in the training list"},
+        "corp_100hosts_dynamic_bridge": {"role": "interpolation", "held_out": true, "reason": "not in the training list or selection under this run's command line; the plan text is stricter and only names _test, so treat as held-out with this caveat"},
+        "corp_100hosts_dynamic_test": {"role": "held-out test", "held_out": true, "reason": "not in the training list or selection"}
+      },
+      "eval_seed_bank": "1_000_000 + k, disjoint from the training seed (1) and its per-env offsets"
+    }
+  ],
+  "not_available": [
+    "Pen-DHRL-TD / any --llm_distill run",
+    "flat baselines (GNN, Invariant, Attention) on the dynamic scenarios",
+    "additional training seeds"
+  ]
+}

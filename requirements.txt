@@ -1,3 +1,7 @@
+# Prebuilt torch-scatter wheels matching torch 2.7.1 (CUDA 12.6); without this pip
+# builds torch-scatter from source, which fails because torch is not yet installed.
+--find-links https://data.pyg.org/whl/torch-2.7.1+cu126.html
+
 aiohappyeyeballs==2.6.1
 aiohttp==3.12.14
 aiosignal==1.4.0

@@ -65,6 +65,14 @@ class HostVector:
     # size of state for host vector (i.e. len of vector)
     state_size = None
     
+    # Follow-up E: when True, the agent's observation of a scan uses the noisy
+    # scan result (false positives/negatives) instead of the host's true
+    # vector. Off by default because that is how this simulator has always
+    # behaved: `observe()` copies the true bits, so scan noise never reached
+    # the agent (see experiments/eval_harness.py --scan_noise_observed and
+    # tests/test_scan_noise_observed.py, which pins both behaviours).
+    scan_noise_observed = False
+
     # scan noise configuration
     scan_noise = {
         'service_scan': {'false_positive_rate': 0.0, 'false_negative_rate': 0.0},
@@ -108,6 +116,12 @@ class HostVector:
             'privesc_success': 0.10,
         }
     }
+
+    # Step 7 simulator validation (docs/eval_revision_plan.tex,
+    # experiments/dynamics_recorder.py): opt-in event log, None by default.
+    # Every recording call site below checks `is not None` first, so leaving
+    # this unset changes no existing behavior.
+    event_recorder = None
 
     # vector position constants
     # to be initialized
@@ -241,6 +255,24 @@ class HostVector:
     def access(self, val):
         self.vector[self._access_idx] = int(val)
 
+    @classmethod
+    def set_scan_noise_observed(cls, enabled):
+        cls.scan_noise_observed = bool(enabled)
+
+    @classmethod
+    def overlay_scan_result(cls, obs_vector, scan_type, mapping):
+        """Write a (possibly noisy) scan result into an observation vector in
+        place. `scan_type` is 'service', 'os' or 'process'; `mapping` is the
+        scan's {name: bit} result as stored on ActionResult."""
+        idx_map, idx_fn = {
+            "service": (cls.service_idx_map, cls._get_service_idx),
+            "os": (cls.os_idx_map, cls._get_os_idx),
+            "process": (cls.process_idx_map, cls._get_process_idx),
+        }[scan_type]
+        for name, num in idx_map.items():
+            if name in mapping:
+                obs_vector[idx_fn(num)] = float(mapping[name])
+
     @property
     def services(self):
         services = {}
@@ -288,6 +320,12 @@ class HostVector:
     def set_ids_config(cls, config):
         """Set IDS configuration from scenario"""
         cls.ids_config = config
+
+    @classmethod
+    def set_event_recorder(cls, recorder):
+        """Step 7 simulator validation (experiments/dynamics_recorder.py).
+        Pass None (the default) to stop recording."""
+        cls.event_recorder = recorder
     
     def _apply_scan_noise(self, mapping, scan_type):
         """Apply noise to scan results"""
@@ -298,10 +336,21 @@ class HostVector:
         noisy = dict(mapping)  # copy
         for k, v in noisy.items():
             r = np.random.rand()
+            flipped = None
             if v and r < fn_rate:
                 noisy[k] = False  # false negative
+                flipped = 'fn'
             elif (not v) and r < fp_rate:
                 noisy[k] = True   # false positive
+                flipped = 'fp'
+            if self.event_recorder is not None:
+                # true_value (the bit's real state before noise) is needed to
+                # tell "started False, stayed False" apart from "started
+                # True, stayed True" -- both record as flipped=None, but only
+                # the former is eligible to ever register as a false
+                # positive and only the latter as a false negative.
+                self.event_recorder.record('scan_noise_trial', scan_type=scan_type,
+                                            host=self.address, true_value=bool(v), flipped=flipped)
         return noisy
 
     def update_service_churn(self, current_step):
@@ -315,17 +364,24 @@ class HostVector:
         for service in affected_services:
             if service not in self.service_idx_map:
                 continue
-            
+
             # Check if service should go down
-            if (self.is_running_service(service) and  # service is currently up
-                np.random.rand() < churn_prob):
-                self._service_goes_down(service, current_step)
-            
+            if self.is_running_service(service):  # service is currently up -- eligible to churn
+                fired = np.random.rand() < churn_prob
+                if self.event_recorder is not None:
+                    self.event_recorder.record('churn_trial', service=service, host=self.address,
+                                                step=current_step, fired=fired)
+                if fired:
+                    self._service_goes_down(service, current_step)
+
             # Check if service should come back up
             if (service in self.service_states and
                 self.service_states[service]['status'] == 'down' and
                 current_step >= self.service_states[service]['down_until']):
                 self._service_comes_up(service)
+                if self.event_recorder is not None:
+                    self.event_recorder.record('churn_recovery', service=service, host=self.address,
+                                                step=current_step)
     
     def _service_goes_down(self, service, current_step):
         """Mark service as down"""
@@ -430,19 +486,30 @@ class HostVector:
         
         # Apply detection multiplier from previous monitoring
         increase *= self.detection_multiplier
-        
+
         # Update detection level
+        level_before = self.detection_level
         self.detection_level += increase
-        
+
         # Natural decay (IDS logs rotate, alerts fade)
         decay_rate = self.ids_config.get('detection_decay', 0.98)
         self.detection_level *= decay_rate
         self.vector[self._detection_level_idx] = self.detection_level
 
+        if self.event_recorder is not None:
+            self.event_recorder.record('ids_increase', host=self.address, step=current_step,
+                                        increase=increase, level_before=level_before,
+                                        level_after_decay=self.detection_level,
+                                        multiplier=self.detection_multiplier)
+
         # Check if host triggers alert
         if self.detection_level > self.detection_threshold:
-            return 'DETECTED', self._handle_detection()
-        
+            response = self._handle_detection()
+            if self.event_recorder is not None:
+                self.event_recorder.record('ids_detected', host=self.address, step=current_step,
+                                            response_type=response['type'])
+            return 'DETECTED', response
+
         return 'SAFE', None
     
     def _handle_detection(self):

@@ -17,8 +17,9 @@ import torch
 
 from nasimemu import env_utils
 from nasimemu.env import NASimEmuEnv
+from nasimemu.nasim.envs.host_vector import HostVector
 from llm_teacher.label_states import _build_dhrl_net
-from experiments.evaluate_llm_selector import run_episode_distilled, run_episode_live
+from experiments.evaluate_llm_selector import _build_eval_env, run_episode_distilled, run_episode_live
 
 SCENARIO = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "..", "scenarios",
@@ -126,3 +127,20 @@ def test_run_episode_live_falls_back_gracefully_on_invalid_teacher_output():
     assert stats["mode"] == "live"
     assert 0 < stats["episode_len"] <= STEP_LIMIT
     assert all(rec.get("reject_reason") == "schema_error" for rec in transcript_records)
+
+
+def test_build_eval_env_uses_the_hardest_curriculum_stage():
+    """Regression test for the training_mode gap fixed alongside the
+    identical bug in experiments/eval_harness.py (see docs/
+    eval_revision_plan.tex, Step 1, and _build_eval_env's own docstring):
+    main()'s 'live' and 'distilled' episodes must be evaluated under
+    corp_100hosts_dynamic.v2.yaml's final ("full_difficulty") curriculum
+    stage -- IDS enabled, nonzero scan noise -- not the default "baseline"
+    stage a bare NASimEmuEnv(...) construction would silently fall back to.
+    _apply_curriculum_settings() (nasim/envs/environment.py) only runs on
+    reset(), not construction, so reset() is required to observe it."""
+    env = _build_eval_env(SCENARIO, STEP_LIMIT, seed=1)
+    env.reset()
+
+    assert HostVector.ids_config.get("enabled") is True
+    assert HostVector.scan_noise["service_scan"]["false_positive_rate"] > 0.0

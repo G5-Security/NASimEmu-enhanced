@@ -93,6 +93,24 @@ def _build_net(scenario, step_limit, checkpoint_path):
     return net
 
 
+def _build_eval_env(scenario, step_limit, seed):
+    """training_mode=False is required, not optional: NASimEmuEnv defaults
+    to True, under which CurriculumManager resolves the curriculum stage by
+    epoch (starting at epoch 0 = "baseline" -- IDS off, zero scan
+    noise/churn/timeouts) rather than always the hardest stage. Found and
+    documented in docs/eval_revision_plan.tex (Step 1) while building
+    experiments/eval_harness.py, which had the identical gap;
+    nasim_debug.py's own _eval() sets this explicitly for exactly this
+    reason. Without it, main()'s 'live' and 'distilled' episodes were both
+    being compared under the easiest curriculum stage instead of the
+    intended evaluation-time difficulty. Pulled out to its own function so
+    the fix is exercised by a real test (tests/test_evaluate_llm_selector.py)
+    instead of only being visible by reading main()."""
+    return NASimEmuEnv(scenario_name=scenario, step_limit=step_limit,
+                        observation_format="graph_v2", seed=seed,
+                        training_mode=False)
+
+
 def _graph_obs(env):
     return env_utils.convert_to_graph(env.s_raw, env.subnet_graph, version=2)
 
@@ -235,14 +253,12 @@ def main():
     for i in range(args.n_episodes):
         seed = args.base_seed + i
 
-        env_distilled = NASimEmuEnv(scenario_name=args.scenario, step_limit=args.step_limit,
-                                     observation_format="graph_v2", seed=seed)
+        env_distilled = _build_eval_env(args.scenario, args.step_limit, seed)
         stats_distilled = run_episode_distilled(net, env_distilled, args.step_limit)
         stats_distilled["episode"] = i
         episode_summaries.append(stats_distilled)
 
-        env_live = NASimEmuEnv(scenario_name=args.scenario, step_limit=args.step_limit,
-                                observation_format="graph_v2", seed=seed)
+        env_live = _build_eval_env(args.scenario, args.step_limit, seed)
         stats_live = run_episode_live(net, env_live, args.step_limit, args.model, transcript_records, i)
         stats_live["episode"] = i
         episode_summaries.append(stats_live)

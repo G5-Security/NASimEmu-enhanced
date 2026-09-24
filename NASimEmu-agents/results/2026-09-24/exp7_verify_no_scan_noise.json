@@ -1,0 +1,117 @@
+{
+  "scenario": "../scenarios/variants/corp_100hosts_dynamic__no_scan_noise.v2.yaml",
+  "n_episodes": 50,
+  "step_limit": 200,
+  "rows": [
+    {
+      "label": "service_dynamics.churn_probability",
+      "configured": 0.01,
+      "measured_k": 21118,
+      "measured_n": 2121407,
+      "measured_rate": 0.009954714017630751,
+      "ci_95_low": 0.009822004894065144,
+      "ci_95_high": 0.010089197958156576,
+      "configured_in_ci": true
+    },
+    {
+      "label": "network_reliability.timeout_probability",
+      "configured": 0.015,
+      "measured_k": 42,
+      "measured_n": 3291,
+      "measured_rate": 0.01276207839562443,
+      "ci_95_low": 0.009455548340125738,
+      "ci_95_high": 0.01720479247868631,
+      "configured_in_ci": true
+    },
+    {
+      "label": "scan_noise.service_scan.false_positive_rate",
+      "configured": 0.0,
+      "measured_k": 0,
+      "measured_n": 33500,
+      "measured_rate": 0.0,
+      "ci_95_low": 0.0,
+      "ci_95_high": 0.00011466147810345425,
+      "configured_in_ci": true
+    },
+    {
+      "label": "scan_noise.service_scan.false_negative_rate",
+      "configured": 0.0,
+      "measured_k": 0,
+      "measured_n": 20900,
+      "measured_rate": 0.0,
+      "ci_95_low": 0.0,
+      "ci_95_high": 0.00018377483304312829,
+      "configured_in_ci": true
+    },
+    {
+      "label": "scan_noise.os_scan.false_positive_rate",
+      "configured": 0.0,
+      "measured_k": 0,
+      "measured_n": 1700,
+      "measured_rate": 0.0,
+      "ci_95_low": 0.0,
+      "ci_95_high": 0.0022546696829094906,
+      "configured_in_ci": true
+    },
+    {
+      "label": "scan_noise.os_scan.false_negative_rate",
+      "configured": 0.0,
+      "measured_k": 0,
+      "measured_n": 1700,
+      "measured_rate": 0.0,
+      "ci_95_low": 0.0,
+      "ci_95_high": 0.0022546696829094906,
+      "configured_in_ci": true
+    },
+    {
+      "label": "scan_noise.process_scan.false_positive_rate",
+      "configured": 0.0,
+      "measured_k": 0,
+      "measured_n": 1024,
+      "measured_rate": 0.0,
+      "ci_95_low": 0.0,
+      "ci_95_high": 0.003737540881785676,
+      "configured_in_ci": true
+    },
+    {
+      "label": "scan_noise.process_scan.false_negative_rate",
+      "configured": 0.0,
+      "measured_k": 0,
+      "measured_n": 211,
+      "measured_rate": 0.0,
+      "ci_95_low": 0.0,
+      "ci_95_high": 0.017881080759033628,
+      "configured_in_ci": true
+    },
+    {
+      "label": "ids.response_types.quarantine",
+      "configured": 0.1,
+      "measured_k": 540,
+      "measured_n": 5474,
+      "measured_rate": 0.09864815491413957,
+      "ci_95_low": 0.09102795557079889,
+      "ci_95_high": 0.10683128884400857,
+      "configured_in_ci": true
+    },
+    {
+      "label": "ids.response_types.patch",
+      "configured": 0.35,
+      "measured_k": 1893,
+      "measured_n": 5474,
+      "measured_rate": 0.34581658750456706,
+      "ci_95_low": 0.33332850255251345,
+      "ci_95_high": 0.35852092953037107,
+      "configured_in_ci": true
+    },
+    {
+      "label": "ids.response_types.monitor",
+      "configured": 0.55,
+      "measured_k": 3041,
+      "measured_n": 5474,
+      "measured_rate": 0.5555352575812934,
+      "ci_95_low": 0.5423371646694339,
+      "ci_95_high": 0.5686554569500011,
+      "configured_in_ci": true
+    }
+  ]
+}

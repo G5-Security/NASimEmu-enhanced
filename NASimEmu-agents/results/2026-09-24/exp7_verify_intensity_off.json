@@ -1,0 +1,87 @@
+{
+  "scenario": "../scenarios/variants/corp_100hosts_dynamic__intensity_off.v2.yaml",
+  "n_episodes": 50,
+  "step_limit": 200,
+  "rows": [
+    {
+      "label": "service_dynamics.churn_probability",
+      "configured": 0.0,
+      "measured_k": 0,
+      "measured_n": 0,
+      "measured_rate": NaN,
+      "ci_95_low": NaN,
+      "ci_95_high": NaN,
+      "configured_in_ci": false
+    },
+    {
+      "label": "network_reliability.timeout_probability",
+      "configured": 0.0,
+      "measured_k": 0,
+      "measured_n": 0,
+      "measured_rate": NaN,
+      "ci_95_low": NaN,
+      "ci_95_high": NaN,
+      "configured_in_ci": false
+    },
+    {
+      "label": "scan_noise.service_scan.false_positive_rate",
+      "configured": 0.0,
+      "measured_k": 0,
+      "measured_n": 33014,
+      "measured_rate": 0.0,
+      "ci_95_low": 0.0,
+      "ci_95_high": 0.00011634921647937156,
+      "configured_in_ci": true
+    },
+    {
+      "label": "scan_noise.service_scan.false_negative_rate",
+      "configured": 0.0,
+      "measured_k": 0,
+      "measured_n": 21386,
+      "measured_rate": 0.0,
+      "ci_95_low": 0.0,
+      "ci_95_high": 0.00017959927295581283,
+      "configured_in_ci": true
+    },
+    {
+      "label": "scan_noise.os_scan.false_positive_rate",
+      "configured": 0.0,
+      "measured_k": 0,
+      "measured_n": 1700,
+      "measured_rate": 0.0,
+      "ci_95_low": 0.0,
+      "ci_95_high": 0.0022546696829094906,
+      "configured_in_ci": true
+    },
+    {
+      "label": "scan_noise.os_scan.false_negative_rate",
+      "configured": 0.0,
+      "measured_k": 0,
+      "measured_n": 1700,
+      "measured_rate": 0.0,
+      "ci_95_low": 0.0,
+      "ci_95_high": 0.0022546696829094906,
+      "configured_in_ci": true
+    },
+    {
+      "label": "scan_noise.process_scan.false_positive_rate",
+      "configured": 0.0,
+      "measured_k": 0,
+      "measured_n": 6817,
+      "measured_rate": 0.0,
+      "ci_95_low": 0.0,
+      "ci_95_high": 0.0005632149557614708,
+      "configured_in_ci": true
+    },
+    {
+      "label": "scan_noise.process_scan.false_negative_rate",
+      "configured": 0.0,
+      "measured_k": 0,
+      "measured_n": 1425,
+      "measured_rate": 0.0,
+      "ci_95_low": 0.0,
+      "ci_95_high": 0.002688611529787486,
+      "configured_in_ci": true
+    }
+  ]
+}

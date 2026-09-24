@@ -1,0 +1,37 @@
+date: 2026-09-24T15:25:12+06:00
+git HEAD: 9b4a3fb93c3fc8029030c717d52e36aa0fb8a9e5
+working tree: DIRTY, 27 changed/untracked paths (evaluation code is uncommitted; listing below)
+ M experiments/evaluate_llm_selector.py
+ M nasim_problem/nasim_net_base_hrl.py
+ M tests/test_evaluate_llm_selector.py
+ M ../requirements.txt
+ M ../src/nasimemu/nasim/envs/host_vector.py
+ M ../src/nasimemu/nasim/envs/network.py
+?? eval_checkpoints/
+?? experiments/analyze.py
+?? experiments/component_interventions.py
+?? experiments/dynamics_recorder.py
+?? experiments/eval_harness.py
+?? experiments/ids_interventions.py
+?? experiments/make_variants.py
+?? experiments/plot_ids_trace.py
+?? experiments/validate_dynamics.py
+?? results/
+?? tests/test_analyze.py
+?? tests/test_component_interventions.py
+?? tests/test_dynamics_recorder.py
+?? tests/test_eval_harness.py
+?? tests/test_failed_exploit_count_unbounded.py
+?? tests/test_ids_interventions.py
+?? tests/test_make_variants.py
+?? tests/test_net_reset_state_ep_t.py
+?? ../docs/eval_revision_plan.tex
+?? ../scenarios/variants/
+?? ../setup_env.sh
+
+checkpoint: eval_checkpoints/pendhrl_c0_seed1_final.pt
+eec32a4fdabdeb7d141134a4dcca30c58b0b55dfd5fc5b88efe43e9f42aad456  eval_checkpoints/pendhrl_c0_seed1_final.pt
+
+jobs: results/2026-09-24/jobs.txt (37 lines), run as: xargs -d '\n' -P 16 -I{} bash -c {} < jobs.txt
+
+extra jobs (launched 2026-09-24T15:34:24+06:00): results/2026-09-24/jobs_extra.txt (7 lines), run as: xargs -d '\n' -P 7 -I{} bash -c {} < jobs_extra.txt

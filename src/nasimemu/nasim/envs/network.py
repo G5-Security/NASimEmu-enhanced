@@ -11,6 +11,18 @@ INTERNET = 0
 class Network:
     """A computer network """
 
+    # Step 7 simulator validation (docs/eval_revision_plan.tex,
+    # experiments/dynamics_recorder.py): opt-in event log, None by default,
+    # same pattern as HostVector.event_recorder. Class-level, not
+    # per-instance, because Network objects are recreated every episode
+    # (NASimEmuEnv._generate_env()).
+    event_recorder = None
+
+    @classmethod
+    def set_event_recorder(cls, recorder):
+        """Pass None (the default) to stop recording."""
+        cls.event_recorder = recorder
+
     def __init__(self, scenario):
         self.hosts = scenario.hosts
         self.host_num_map = scenario.host_num_map
@@ -315,16 +327,28 @@ class Network:
         if timeout_key in self.active_timeouts:
             timeout_info = self.active_timeouts[timeout_key]
             if self.current_step < timeout_info['until']:
+                if self.event_recorder is not None:
+                    self.event_recorder.record('timeout_blocked', src=src_subnet, dest=dest_subnet,
+                                                action_type=action_type, step=self.current_step,
+                                                reason='already_active')
                 return True  # Still in timeout
             else:
                 # Timeout expired
                 del self.active_timeouts[timeout_key]
-        
+
         # Check for new timeout
-        if np.random.rand() < timeout_prob:
+        fired = np.random.rand() < timeout_prob
+        if self.event_recorder is not None:
+            self.event_recorder.record('timeout_trial', src=src_subnet, dest=dest_subnet,
+                                        action_type=action_type, step=self.current_step, fired=fired)
+        if fired:
             self._create_timeout(timeout_key)
+            if self.event_recorder is not None:
+                self.event_recorder.record('timeout_blocked', src=src_subnet, dest=dest_subnet,
+                                            action_type=action_type, step=self.current_step,
+                                            reason='new')
             return True
-        
+
         return False
     
     def _create_timeout(self, timeout_key):

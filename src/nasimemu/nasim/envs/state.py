@@ -204,6 +204,13 @@ class State:
         else:
             raise NotImplementedError(f"Action {action} not implemented")
         target_obs = t_host.observe(**obs_kwargs)
+        if HostVector.scan_noise_observed:
+            if action.is_service_scan():
+                HostVector.overlay_scan_result(target_obs, "service", action_result.services)
+            elif action.is_os_scan():
+                HostVector.overlay_scan_result(target_obs, "os", action_result.os)
+            elif action.is_process_scan():
+                HostVector.overlay_scan_result(target_obs, "process", action_result.processes)
         obs.update_from_host(t_idx, target_obs)
         return obs
 
