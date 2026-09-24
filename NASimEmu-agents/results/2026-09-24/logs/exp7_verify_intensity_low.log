@@ -1,0 +1,16 @@
+label                                         configured   measured      n               95% CI  ok
+service_dynamics.churn_probability                0.0050     0.0051 1437646       [0.005, 0.005]  OK
+network_reliability.timeout_probability           0.0100     0.0164   3291       [0.013, 0.021]  MISMATCH
+scan_noise.service_scan.false_positive_rate       0.0200     0.0197  33128       [0.018, 0.021]  OK
+scan_noise.service_scan.false_negative_rate       0.0300     0.0287  21272       [0.027, 0.031]  OK
+scan_noise.os_scan.false_positive_rate            0.0100     0.0082   1700       [0.005, 0.014]  OK
+scan_noise.os_scan.false_negative_rate            0.0200     0.0206   1700       [0.015, 0.028]  OK
+scan_noise.process_scan.false_positive_rate       0.0300     0.0273   1687       [0.021, 0.036]  OK
+scan_noise.process_scan.false_negative_rate       0.0500     0.0640    328       [0.042, 0.096]  OK
+ids.response_types.quarantine                     0.0500     0.0514   5353       [0.046, 0.058]  OK
+ids.response_types.patch                          0.2500     0.2559   5353       [0.244, 0.268]  OK
+ids.response_types.monitor                        0.7000     0.6927   5353       [0.680, 0.705]  OK
+
+Wrote results/2026-09-24/exp7_verify_intensity_low.json
+
+1/11 measured rates fell outside their 95% CI of the configured value.

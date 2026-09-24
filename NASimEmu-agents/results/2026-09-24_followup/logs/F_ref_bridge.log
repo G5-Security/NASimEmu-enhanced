@@ -1,0 +1,12 @@
+/home/user6/Desktop/NASimEmu-enhanced/venv/lib/python3.10/site-packages/torch_geometric/deprecation.py:26: UserWarning: 'nn.glob.GlobalAttention' is deprecated, use 'nn.aggr.AttentionalAggregation' instead
+  warnings.warn(out)
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/corp_100hosts_dynamic_bridge.v2.yaml/handmade_bridge: 20/200 episodes, 114.5s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/corp_100hosts_dynamic_bridge.v2.yaml/handmade_bridge: 40/200 episodes, 219.7s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/corp_100hosts_dynamic_bridge.v2.yaml/handmade_bridge: 60/200 episodes, 314.1s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/corp_100hosts_dynamic_bridge.v2.yaml/handmade_bridge: 80/200 episodes, 420.7s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/corp_100hosts_dynamic_bridge.v2.yaml/handmade_bridge: 100/200 episodes, 523.1s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/corp_100hosts_dynamic_bridge.v2.yaml/handmade_bridge: 120/200 episodes, 622.8s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/corp_100hosts_dynamic_bridge.v2.yaml/handmade_bridge: 140/200 episodes, 725.2s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/corp_100hosts_dynamic_bridge.v2.yaml/handmade_bridge: 160/200 episodes, 826.9s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/corp_100hosts_dynamic_bridge.v2.yaml/handmade_bridge: 180/200 episodes, 916.6s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/corp_100hosts_dynamic_bridge.v2.yaml/handmade_bridge: 200/200 episodes, 1025.6s elapsed

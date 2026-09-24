@@ -1,0 +1,14 @@
+label                                         configured   measured      n               95% CI  ok
+service_dynamics.churn_probability                0.0100     0.0100 2121407       [0.010, 0.010]  OK
+network_reliability.timeout_probability           0.0150     0.0128   3291       [0.009, 0.017]  OK
+scan_noise.service_scan.false_positive_rate       0.0300     0.0307  33500       [0.029, 0.033]  OK
+scan_noise.service_scan.false_negative_rate       0.0500     0.0494  20900       [0.047, 0.052]  OK
+scan_noise.os_scan.false_positive_rate            0.0150     0.0171   1700       [0.012, 0.024]  OK
+scan_noise.os_scan.false_negative_rate            0.0300     0.0288   1700       [0.022, 0.038]  OK
+scan_noise.process_scan.false_positive_rate       0.0400     0.0371   1024       [0.027, 0.051]  OK
+scan_noise.process_scan.false_negative_rate       0.0700     0.0758    211       [0.047, 0.120]  OK
+ids.response_types.quarantine                     0.1000     0.0986   5474       [0.091, 0.107]  OK
+ids.response_types.patch                          0.3500     0.3458   5474       [0.333, 0.359]  OK
+ids.response_types.monitor                        0.5500     0.5555   5474       [0.542, 0.569]  OK
+
+Wrote results/2026-09-24/exp7_verify_full_dynamics.json

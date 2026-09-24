@@ -1,0 +1,12 @@
+/home/user6/Desktop/NASimEmu-enhanced/venv/lib/python3.10/site-packages/torch_geometric/deprecation.py:26: UserWarning: 'nn.glob.GlobalAttention' is deprecated, use 'nn.aggr.AttentionalAggregation' instead
+  warnings.warn(out)
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/corp_100hosts_dynamic.v2.yaml/only_gain_initial_access: 50/500 episodes, 157.9s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/corp_100hosts_dynamic.v2.yaml/only_gain_initial_access: 100/500 episodes, 420.0s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/corp_100hosts_dynamic.v2.yaml/only_gain_initial_access: 150/500 episodes, 681.9s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/corp_100hosts_dynamic.v2.yaml/only_gain_initial_access: 200/500 episodes, 940.6s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/corp_100hosts_dynamic.v2.yaml/only_gain_initial_access: 250/500 episodes, 1200.2s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/corp_100hosts_dynamic.v2.yaml/only_gain_initial_access: 300/500 episodes, 1424.8s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/corp_100hosts_dynamic.v2.yaml/only_gain_initial_access: 350/500 episodes, 1582.2s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/corp_100hosts_dynamic.v2.yaml/only_gain_initial_access: 400/500 episodes, 1716.7s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/corp_100hosts_dynamic.v2.yaml/only_gain_initial_access: 450/500 episodes, 1851.9s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/corp_100hosts_dynamic.v2.yaml/only_gain_initial_access: 500/500 episodes, 1986.9s elapsed

@@ -1,0 +1,16 @@
+label                                         configured   measured      n               95% CI  ok
+service_dynamics.churn_probability                0.0000        nan      0                  n/a  MISMATCH
+network_reliability.timeout_probability           0.0000     0.0000   3300       [0.000, 0.001]  OK
+scan_noise.service_scan.false_positive_rate       0.0000     0.0000  33014       [0.000, 0.000]  OK
+scan_noise.service_scan.false_negative_rate       0.0000     0.0000  21386       [0.000, 0.000]  OK
+scan_noise.os_scan.false_positive_rate            0.0000     0.0000   1700       [0.000, 0.002]  OK
+scan_noise.os_scan.false_negative_rate            0.0000     0.0000   1700       [0.000, 0.002]  OK
+scan_noise.process_scan.false_positive_rate       0.0000     0.0000   6810       [0.000, 0.001]  OK
+scan_noise.process_scan.false_negative_rate       0.0000     0.0000   1419       [0.000, 0.003]  MISMATCH
+ids.response_types.quarantine                     0.1000        nan      0                  n/a  MISMATCH
+ids.response_types.patch                          0.3500        nan      0                  n/a  MISMATCH
+ids.response_types.monitor                        0.5500        nan      0                  n/a  MISMATCH
+
+Wrote results/2026-09-24/exp7_verify_all_off.json
+
+1/11 measured rates fell outside their 95% CI of the configured value.

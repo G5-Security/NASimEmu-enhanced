@@ -1,0 +1,12 @@
+/home/user6/Desktop/NASimEmu-enhanced/venv/lib/python3.10/site-packages/torch_geometric/deprecation.py:26: UserWarning: 'nn.glob.GlobalAttention' is deprecated, use 'nn.aggr.AttentionalAggregation' instead
+  warnings.warn(out)
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/variants_sensitivity/corp_100hosts_dynamic__scan_noise_x0.v2.yaml/noiseobs_x0: 30/300 episodes, 76.0s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/variants_sensitivity/corp_100hosts_dynamic__scan_noise_x0.v2.yaml/noiseobs_x0: 60/300 episodes, 152.2s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/variants_sensitivity/corp_100hosts_dynamic__scan_noise_x0.v2.yaml/noiseobs_x0: 90/300 episodes, 227.9s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/variants_sensitivity/corp_100hosts_dynamic__scan_noise_x0.v2.yaml/noiseobs_x0: 120/300 episodes, 340.2s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/variants_sensitivity/corp_100hosts_dynamic__scan_noise_x0.v2.yaml/noiseobs_x0: 150/300 episodes, 457.3s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/variants_sensitivity/corp_100hosts_dynamic__scan_noise_x0.v2.yaml/noiseobs_x0: 180/300 episodes, 568.4s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/variants_sensitivity/corp_100hosts_dynamic__scan_noise_x0.v2.yaml/noiseobs_x0: 210/300 episodes, 651.5s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/variants_sensitivity/corp_100hosts_dynamic__scan_noise_x0.v2.yaml/noiseobs_x0: 240/300 episodes, 757.6s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/variants_sensitivity/corp_100hosts_dynamic__scan_noise_x0.v2.yaml/noiseobs_x0: 270/300 episodes, 853.1s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/variants_sensitivity/corp_100hosts_dynamic__scan_noise_x0.v2.yaml/noiseobs_x0: 300/300 episodes, 927.4s elapsed

@@ -1,0 +1,14 @@
+label                                         configured   measured      n               95% CI  ok
+service_dynamics.churn_probability                0.0150     0.0150 2027172       [0.015, 0.015]  OK
+network_reliability.timeout_probability           0.0225     0.0216   3285       [0.017, 0.027]  OK
+scan_noise.service_scan.false_positive_rate       0.0450     0.0444  33678       [0.042, 0.047]  OK
+scan_noise.service_scan.false_negative_rate       0.0750     0.0747  20722       [0.071, 0.078]  OK
+scan_noise.os_scan.false_positive_rate            0.0225     0.0229   1700       [0.017, 0.031]  OK
+scan_noise.os_scan.false_negative_rate            0.0450     0.0424   1700       [0.034, 0.053]  OK
+scan_noise.process_scan.false_positive_rate       0.0600     0.0609   1034       [0.048, 0.077]  OK
+scan_noise.process_scan.false_negative_rate       0.1050     0.1208    240       [0.085, 0.168]  OK
+ids.response_types.quarantine                     0.1000     0.1019   5547       [0.094, 0.110]  OK
+ids.response_types.patch                          0.3500     0.3524   5547       [0.340, 0.365]  OK
+ids.response_types.monitor                        0.5500     0.5457   5547       [0.533, 0.559]  OK
+
+Wrote results/2026-09-24/exp7_verify_intensity_harder.json

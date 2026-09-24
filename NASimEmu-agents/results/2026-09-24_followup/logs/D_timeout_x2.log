@@ -1,0 +1,12 @@
+/home/user6/Desktop/NASimEmu-enhanced/venv/lib/python3.10/site-packages/torch_geometric/deprecation.py:26: UserWarning: 'nn.glob.GlobalAttention' is deprecated, use 'nn.aggr.AttentionalAggregation' instead
+  warnings.warn(out)
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/variants_sensitivity/corp_100hosts_dynamic__timeout_x2.v2.yaml/timeout_x2: 30/300 episodes, 97.6s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/variants_sensitivity/corp_100hosts_dynamic__timeout_x2.v2.yaml/timeout_x2: 60/300 episodes, 197.1s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/variants_sensitivity/corp_100hosts_dynamic__timeout_x2.v2.yaml/timeout_x2: 90/300 episodes, 292.7s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/variants_sensitivity/corp_100hosts_dynamic__timeout_x2.v2.yaml/timeout_x2: 120/300 episodes, 369.5s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/variants_sensitivity/corp_100hosts_dynamic__timeout_x2.v2.yaml/timeout_x2: 150/300 episodes, 444.6s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/variants_sensitivity/corp_100hosts_dynamic__timeout_x2.v2.yaml/timeout_x2: 180/300 episodes, 521.3s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/variants_sensitivity/corp_100hosts_dynamic__timeout_x2.v2.yaml/timeout_x2: 210/300 episodes, 597.2s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/variants_sensitivity/corp_100hosts_dynamic__timeout_x2.v2.yaml/timeout_x2: 240/300 episodes, 673.7s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/variants_sensitivity/corp_100hosts_dynamic__timeout_x2.v2.yaml/timeout_x2: 270/300 episodes, 749.0s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/variants_sensitivity/corp_100hosts_dynamic__timeout_x2.v2.yaml/timeout_x2: 300/300 episodes, 847.7s elapsed

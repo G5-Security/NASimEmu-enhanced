@@ -1,0 +1,12 @@
+/home/user6/Desktop/NASimEmu-enhanced/venv/lib/python3.10/site-packages/torch_geometric/deprecation.py:26: UserWarning: 'nn.glob.GlobalAttention' is deprecated, use 'nn.aggr.AttentionalAggregation' instead
+  warnings.warn(out)
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/variants_sensitivity/corp_100hosts_dynamic__ids_thr_x1.25.v2.yaml/ids_thr_x1.25: 30/300 episodes, 74.4s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/variants_sensitivity/corp_100hosts_dynamic__ids_thr_x1.25.v2.yaml/ids_thr_x1.25: 60/300 episodes, 153.6s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/variants_sensitivity/corp_100hosts_dynamic__ids_thr_x1.25.v2.yaml/ids_thr_x1.25: 90/300 episodes, 228.8s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/variants_sensitivity/corp_100hosts_dynamic__ids_thr_x1.25.v2.yaml/ids_thr_x1.25: 120/300 episodes, 304.1s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/variants_sensitivity/corp_100hosts_dynamic__ids_thr_x1.25.v2.yaml/ids_thr_x1.25: 150/300 episodes, 421.8s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/variants_sensitivity/corp_100hosts_dynamic__ids_thr_x1.25.v2.yaml/ids_thr_x1.25: 180/300 episodes, 553.0s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/variants_sensitivity/corp_100hosts_dynamic__ids_thr_x1.25.v2.yaml/ids_thr_x1.25: 210/300 episodes, 708.9s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/variants_sensitivity/corp_100hosts_dynamic__ids_thr_x1.25.v2.yaml/ids_thr_x1.25: 240/300 episodes, 864.9s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/variants_sensitivity/corp_100hosts_dynamic__ids_thr_x1.25.v2.yaml/ids_thr_x1.25: 270/300 episodes, 1026.3s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/variants_sensitivity/corp_100hosts_dynamic__ids_thr_x1.25.v2.yaml/ids_thr_x1.25: 300/300 episodes, 1194.9s elapsed

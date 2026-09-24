@@ -1,0 +1,12 @@
+/home/user6/Desktop/NASimEmu-enhanced/venv/lib/python3.10/site-packages/torch_geometric/deprecation.py:26: UserWarning: 'nn.glob.GlobalAttention' is deprecated, use 'nn.aggr.AttentionalAggregation' instead
+  warnings.warn(out)
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/corp_100hosts_dynamic_varA.v2.yaml/handmade_varA: 20/200 episodes, 99.2s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/corp_100hosts_dynamic_varA.v2.yaml/handmade_varA: 40/200 episodes, 204.9s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/corp_100hosts_dynamic_varA.v2.yaml/handmade_varA: 60/200 episodes, 315.1s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/corp_100hosts_dynamic_varA.v2.yaml/handmade_varA: 80/200 episodes, 419.0s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/corp_100hosts_dynamic_varA.v2.yaml/handmade_varA: 100/200 episodes, 524.0s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/corp_100hosts_dynamic_varA.v2.yaml/handmade_varA: 120/200 episodes, 621.3s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/corp_100hosts_dynamic_varA.v2.yaml/handmade_varA: 140/200 episodes, 715.8s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/corp_100hosts_dynamic_varA.v2.yaml/handmade_varA: 160/200 episodes, 820.6s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/corp_100hosts_dynamic_varA.v2.yaml/handmade_varA: 180/200 episodes, 928.7s elapsed
+[eval_harness] pendhrl_c0_seed1_final/../scenarios/corp_100hosts_dynamic_varA.v2.yaml/handmade_varA: 200/200 episodes, 1041.6s elapsed
